@@ -114,7 +114,8 @@ describe('param-options catalog', () => {
         assert.equal(supportsSmea('nai-diffusion-3'), true);
         assert.equal(supportsVariety('nai-diffusion-4-5-full'), true);
         assert.equal(supportsVariety('nai-diffusion-5-full'), false);
-        assert.equal(supportsCfgRescale('nai-diffusion-5-full'), false);
+        assert.equal(supportsCfgRescale('nai-diffusion-5-full'), true);
+        assert.equal(supportsCfgRescale('nai-diffusion-4-5-full'), true);
         assert.equal(supportsNoiseScheduleSelect('nai-diffusion-5-full'), false);
         assert.equal(noiseSchedulesForModel('nai-diffusion-5-full').length, 1);
         assert.equal(supportsTransparentBackground('nai-diffusion-5-full'), true);
@@ -144,7 +145,7 @@ describe('reconcile / coerce on model change', () => {
         assert.ok(notices.length >= 3);
     });
 
-    it('V5 forces karras, clears variety / cfg / smea', () => {
+    it('V5 forces karras, clears variety / smea, keeps cfg rescale', () => {
         const { params, notices } = reconcileParamsForModel({
             ...defaultNaiParams(),
             noise_schedule: 'native',
@@ -155,7 +156,7 @@ describe('reconcile / coerce on model change', () => {
         }, 'nai-diffusion-5-full');
         assert.equal(params.noise_schedule, 'karras');
         assert.equal(params.skip_cfg_above_sigma, null);
-        assert.equal(params.cfg_rescale, 0);
+        assert.equal(params.cfg_rescale, 0.5);
         assert.equal(params.sm, false);
         assert.equal(params.sm_dyn, false);
         assert.ok(notices.some((n) => n.includes('Karras')));
@@ -403,7 +404,7 @@ describe('mergeNaiParamsForGenerate (4.14)', () => {
         assert.equal(r.value.params.model, 'nai-diffusion-5-full');
         assert.equal(r.value.params.noise_schedule, 'karras');
         assert.equal(r.value.params.skip_cfg_above_sigma, null);
-        assert.equal(r.value.params.cfg_rescale, 0);
+        assert.equal(r.value.params.cfg_rescale, 0.4);
         assert.equal(r.value.params.sm, false);
         assert.equal(r.value.params.sm_dyn, false);
     });

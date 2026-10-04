@@ -263,7 +263,7 @@ export function supportsSmea(model) {
 }
 
 /**
- * Variety / CFG Rescale：app `syncModelCapabilities` 对 V5 禁用；仅 4.5 族发送。
+ * Variety：app `syncModelCapabilities` 对 V5 禁用；仅 4.5 族发送。
  * @param {string} model
  * @returns {boolean}
  */
@@ -272,11 +272,13 @@ export function supportsVariety(model) {
 }
 
 /**
- * @param {string} model
+ * CFG Rescale（NovelAI 界面现名 Prompt Guidance Rescale，请求字段仍为 cfg_rescale）：
+ * V3 / V4 / V4.5 / V5 都可调，不再按模型强制归 0。
+ * @param {string} _model
  * @returns {boolean}
  */
-export function supportsCfgRescale(model) {
-    return classifyNaiModel(model) === 'v45';
+export function supportsCfgRescale(_model) {
+    return true;
 }
 
 /**
