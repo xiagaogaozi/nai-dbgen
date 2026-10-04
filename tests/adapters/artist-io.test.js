@@ -168,6 +168,36 @@ describe('artist import/export', () => {
         assert.equal(list3.value.length, 2);
     });
 
+    it('overwrites an illustrated artist with a missing or blank image', async () => {
+        for (const imageField of ['missing', 'null', 'empty', 'whitespace']) {
+            const { repo, imageRepo } = makeRepo();
+            const first = await repo.importJson([FIXTURE[0]], { strategy: 'skip' });
+            assert.equal(first.value.imported, 1);
+            const original = (await repo.list()).value[0];
+            const row = {
+                name: original.name,
+                sequence: original.sequence,
+                positivePrompt: 'new positive',
+                negativePrompt: 'new negative',
+            };
+            if (imageField !== 'missing') {
+                row.referenceImage = imageField === 'null' ? null : imageField === 'empty' ? '' : '  ';
+            }
+
+            const result = await repo.importJson([row], { strategy: 'overwrite' });
+            assert.equal(result.ok, true, imageField);
+            assert.deepEqual(result.value, { imported: 1, skipped: 0, errors: [] }, imageField);
+            const updated = (await repo.list()).value[0];
+            assert.equal(updated.id, original.id);
+            assert.equal(updated.positivePrompt, 'new positive');
+            assert.equal(updated.negativePrompt, 'new negative');
+            assert.equal(updated.referenceImageRef, null);
+            assert.equal(updated.cardImageRef, null);
+            assert.equal((await imageRepo.getBlob(original.referenceImageRef)).value, null);
+            assert.equal((await imageRepo.getBlob(original.cardImageRef)).value, null);
+        }
+    });
+
     it('card gen failure on one row keeps others', async () => {
         const imageDb = createMemoryIdb();
         const imageRepo = createImageRepo({ db: imageDb });

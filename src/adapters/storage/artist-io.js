@@ -164,7 +164,7 @@ export function pickArtistImportFields(raw) {
  * @returns {{ ok: true, value: string|null } | { ok: false, error: string }}
  */
 function normalizeDataUrlOrNull(value, name, field) {
-    if (value == null) {
+    if (value == null || (typeof value === 'string' && !value.trim())) {
         return { ok: true, value: null };
     }
     if (typeof value !== 'string') {
