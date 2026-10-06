@@ -391,6 +391,8 @@ async function resolveOverwriteConfirm(count, custom) {
  * @param {(data: object, strategy: string) => Promise<object>} deps.importJson
  * @param {() => Promise<object>} deps.exportJson
  * @param {(count: number) => boolean|Promise<boolean>} [deps.confirmOverwrite] D53：面板注入异步确认（confirmAsk）；未传则拒绝覆盖
+ * @param {(rows: object[]) => number|Promise<number>} [deps.countOverwrite]
+ *   实际会被覆盖的已有条数。画师串按名称加版本计；返回 0 则不弹确认。未传则按 id 交集计。
  * @param {'import'|'export'} [deps.mode] 导入和导出分窗。默认 import。
  * @returns {{ destroy: () => void }}
  */
@@ -402,6 +404,9 @@ export function mountImportExport(root, deps) {
     const exportJson = typeof deps?.exportJson === 'function' ? deps.exportJson : null;
     const confirmOverwriteCb = typeof deps?.confirmOverwrite === 'function'
         ? deps.confirmOverwrite
+        : null;
+    const countOverwrite = typeof deps?.countOverwrite === 'function'
+        ? deps.countOverwrite
         : null;
     const replaceOnly = deps?.replaceOnly === true;
     const mode = deps?.mode === 'export' ? 'export' : 'import';
@@ -731,22 +736,34 @@ export function mountImportExport(root, deps) {
         const mode = replaceOnly ? 'overwrite' : (strategySelect.value || 'overwrite');
         if (mode === 'overwrite') {
             const checkedRows = previewRows.filter((row, i) => checked[i]).map((row) => row.item);
-            const incomingIds = collectRecordIds(checkedRows);
-            let overlap = incomingIds.size;
-            if (exportJson) {
+            let overlap = 0;
+            if (countOverwrite) {
                 try {
-                    const current = await exportJson();
-                    if (replaceOnly) {
-                        overlap = extractPreviewRows(current).length;
-                    } else {
-                        const existing = collectRecordIds(current);
-                        overlap = [...incomingIds].filter((id) => existing.has(id)).length;
-                    }
+                    overlap = Number(await countOverwrite(checkedRows)) || 0;
                 } catch {
-                    overlap = checked.filter(Boolean).length;
+                    overlap = 0;
+                }
+            } else if (replaceOnly) {
+                overlap = checkedRows.length;
+                if (exportJson) {
+                    try {
+                        overlap = extractPreviewRows(await exportJson()).length;
+                    } catch {
+                        overlap = checkedRows.length;
+                    }
+                }
+            } else {
+                const incomingIds = collectRecordIds(checkedRows);
+                if (incomingIds.size && exportJson) {
+                    try {
+                        const existing = collectRecordIds(await exportJson());
+                        overlap = [...incomingIds].filter((id) => existing.has(id)).length;
+                    } catch {
+                        overlap = incomingIds.size;
+                    }
                 }
             }
-            if (overlap > 0 || replaceOnly) {
+            if (overlap > 0) {
                 const ok = await resolveOverwriteConfirm(overlap, confirmOverwriteCb);
                 if (!ok) {
                     statusEl.textContent = t('import.overwriteCancelled');
@@ -833,21 +850,36 @@ export function mountImportExport(root, deps) {
     drop.addEventListener('dragleave', onDragLeave);
     drop.addEventListener('drop', onDrop);
 
+    let exportGen = 0;
+
+    async function reloadExport() {
+        if (!exportJson || destroyed) return;
+        const gen = ++exportGen;
+        setError('');
+        loadingEl.textContent = '正在读取当前库…';
+        if (!loadingEl.parentNode) shell.appendChild(loadingEl);
+        preview.classList.add('nd-hidden');
+        try {
+            const data = await exportJson();
+            if (destroyed || gen !== exportGen) return;
+            showPreview(data ?? {}, '');
+        } catch (err) {
+            if (destroyed || gen !== exportGen) return;
+            const message = err instanceof Error ? err.message : String(err);
+            if (message === '已取消') return;
+            loadingEl.remove();
+            setError(message);
+        }
+    }
+
     if (mode === 'export' && exportJson) {
-        void (async () => {
-            try {
-                const data = await exportJson();
-                if (destroyed) return;
-                showPreview(data ?? {}, '');
-            } catch (err) {
-                if (destroyed) return;
-                loadingEl.remove();
-                setError(err instanceof Error ? err.message : String(err));
-            }
-        })();
+        void reloadExport();
     }
 
     return {
+        reload() {
+            return reloadExport();
+        },
         destroy() {
             if (destroyed) return;
             destroyed = true;

@@ -150,9 +150,10 @@ export function mountDrawer(root, deps) {
      * @param {{
      *   cover?: boolean,
      *   resolveCover?: (item: object|null|undefined) => Promise<string|null>|string|null,
-     *   getLabel?: (item: object) => string,
-     * }} [pickerOpts]
-     */
+ *   getLabel?: (item: object) => string,
+ *   modelTagFilter?: boolean,
+ * }} [pickerOpts]
+ */
     function addPicker(label, listFn, getId, setId, pickerOpts) {
         const wrap = el('div', 'nd-drawer__picker');
         const lab = el('span', 'nd-field__label');
@@ -167,6 +168,7 @@ export function mountDrawer(root, deps) {
             cover: pickerOpts?.cover === true,
             resolveCover: pickerOpts?.resolveCover,
             getLabel: pickerOpts?.getLabel,
+            modelTagFilter: pickerOpts?.modelTagFilter === true,
         });
     }
 
@@ -196,7 +198,7 @@ export function mountDrawer(root, deps) {
             },
             () => load().activeArtistId,
             (id) => patch({ activeArtistId: id }),
-            { cover: true, resolveCover: resolveArtistCover },
+            { cover: true, resolveCover: resolveArtistCover, modelTagFilter: true },
         ));
     }
     if (repos.naiConfig) {

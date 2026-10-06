@@ -7,6 +7,11 @@ import { isOk, isErr } from '../../infra/result.js';
 import { mergePluginSettings } from '../../domain/model/plugin-settings.js';
 import { createButton, createEmptyState, createToggle } from '../common/controls.js';
 import { paintSafeCover } from '../common/safe-url.js';
+import {
+    artistMatchesModelFilter,
+    createArtistModelTagFilter,
+    formatArtistModelTag,
+} from '../common/artist-model-tags.js';
 import { mountDrawer } from '../drawer/drawer.js';
 import {
     createGestureRecognizer,
@@ -561,12 +566,16 @@ export function mountFloatingBall(root, deps) {
     /**
      * @param {object[]} items
      * @param {string} query
+     * @param {string} [modelTag]
      * @returns {object[]}
      */
-    function filterArtists(items, query) {
+    function filterArtists(items, query, modelTag = '') {
         const q = String(query || '').trim().toLowerCase();
-        if (!q) return items;
-        return items.filter((it) => String(it?.name ?? '').toLowerCase().includes(q));
+        return items.filter((it) => {
+            if (!artistMatchesModelFilter(it, modelTag)) return false;
+            if (!q) return true;
+            return String(it?.name ?? '').toLowerCase().includes(q);
+        });
     }
 
     /**
@@ -627,7 +636,10 @@ export function mountFloatingBall(root, deps) {
         const body = el('div', 'nd-fab-panel__body');
         const listHost = el('div', 'nd-fab-artist-grid');
         body.appendChild(listHost);
-        panel.append(head, searchWrap, body);
+        const tagFilter = createArtistModelTagFilter({
+            onChange: () => renderList(),
+        });
+        panel.append(head, searchWrap, tagFilter.el, body);
 
         /** @type {object[]} */
         let allItems = [];
@@ -638,7 +650,7 @@ export function mountFloatingBall(root, deps) {
          */
         function renderList() {
             listHost.replaceChildren();
-            const filtered = filterArtists(allItems, search.value);
+            const filtered = filterArtists(allItems, search.value, tagFilter.getValue());
             if (allItems.length === 0) {
                 const go = createButton({
                     label: '去管理台添加',
@@ -661,7 +673,7 @@ export function mountFloatingBall(root, deps) {
             if (filtered.length === 0) {
                 const empty = createEmptyState({
                     title: '无匹配项',
-                    description: '换个关键词试试。',
+                    description: '换个版本或关键词试试。',
                 });
                 listHost.appendChild(empty.el);
                 return;
@@ -681,6 +693,9 @@ export function mountFloatingBall(root, deps) {
                 const label = el('span', 'nd-fab-artist-card__name');
                 setText(label, name);
                 card.appendChild(label);
+                const tags = el('span', 'nd-fab-artist-card__tags');
+                setText(tags, formatArtistModelTag(item));
+                card.appendChild(tags);
                 card.addEventListener('click', (event) => {
                     event.preventDefault();
                     if (!id) return;

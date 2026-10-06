@@ -1,7 +1,8 @@
 /**
  * L3 领域模型 · 画师串（架构文档 §5.1，需求 4.2）。
  * 导入导出五字段：name / sequence / positivePrompt / negativePrompt / referenceImage。
- * 库内另存 referenceImageRef + cardImageRef（卡片图不导出）。
+ * 库内另存 referenceImageRef + cardImageRef（卡片图不导出），以及 modelTag（一个模型版本，不进五字段导出）。
+ * 没有版本的旧数据一律视为 v5。同名且版本相同才是同一条；版本不同是另一条。
  */
 
 import {
@@ -14,6 +15,18 @@ import {
 } from '../../infra/validate.js';
 
 export const ARTIST_SCHEMA_VERSION = 1;
+
+/**
+ * 画师串适用的 NAI 模型版本。顺序即展示与存储顺序。
+ * @readonly
+ */
+export const ARTIST_MODEL_TAGS = Object.freeze(['v4.5', 'v5']);
+
+/**
+ * 旧库、未标明版本的画师串使用的版本。
+ * @readonly
+ */
+export const DEFAULT_ARTIST_MODEL_TAGS = Object.freeze(['v5']);
 
 /**
  * 库列表卡片图：宽 480、按原图比例、webp。
@@ -38,6 +51,7 @@ export const ARTIST_CARD_IMAGE = Object.freeze({
  * @property {string} negativePrompt
  * @property {ImageRef|null} referenceImageRef
  * @property {ImageRef|null} cardImageRef 卡片图（不导出；导入/预览时从原图生成）
+ * @property {string} modelTag 适用模型版本，只能是 v4.5 或 v5；缺省为 v5
  * @property {string} createdAt
  * @property {string} updatedAt
  */
@@ -68,9 +82,56 @@ export function createArtist(input, deps) {
         cardImageRef: input.cardImageRef == null || input.cardImageRef === ''
             ? null
             : String(input.cardImageRef),
+        modelTag: resolveArtistModelTag(input.modelTag != null ? input.modelTag : input.modelTags),
         createdAt: deps.now,
         updatedAt: deps.now,
     };
+}
+
+/**
+ * 收成一个已知版本。字符串、旧的 modelTags 数组、或带这两个字段的画师对象都可以。
+ * 缺字段或全是未知值时回落到 v5。数组里有多个已知版本时只留第一个。
+ * @param {unknown} source
+ * @returns {string}
+ */
+export function resolveArtistModelTag(source) {
+    if (typeof source === 'string') {
+        return ARTIST_MODEL_TAGS.includes(source) ? source : DEFAULT_ARTIST_MODEL_TAGS[0];
+    }
+    if (Array.isArray(source)) {
+        for (const item of source) {
+            const tag = String(item);
+            if (ARTIST_MODEL_TAGS.includes(tag)) return tag;
+        }
+        return DEFAULT_ARTIST_MODEL_TAGS[0];
+    }
+    if (source && typeof source === 'object') {
+        const row = /** @type {{ modelTag?: unknown, modelTags?: unknown }} */ (source);
+        if (typeof row.modelTag === 'string' && ARTIST_MODEL_TAGS.includes(row.modelTag)) {
+            return row.modelTag;
+        }
+        if (Array.isArray(row.modelTags)) return resolveArtistModelTag(row.modelTags);
+    }
+    return DEFAULT_ARTIST_MODEL_TAGS[0];
+}
+
+/**
+ * 判重键：名称 + 版本。版本不同则不是同一条。
+ * @param {string} name
+ * @param {unknown} modelTag
+ * @returns {string}
+ */
+export function artistDuplicateKey(name, modelTag) {
+    return `${String(name)}\u0000${resolveArtistModelTag(modelTag)}`;
+}
+
+/**
+ * @param {{ modelTag?: unknown, modelTags?: unknown }|null|undefined} artist
+ * @param {string} tag
+ * @returns {boolean}
+ */
+export function artistHasModelTag(artist, tag) {
+    return resolveArtistModelTag(artist) === String(tag);
 }
 
 /**
@@ -119,6 +180,7 @@ export function normalizeArtist(obj) {
         cardImageRef: obj.cardImageRef == null || obj.cardImageRef === ''
             ? null
             : String(obj.cardImageRef),
+        modelTag: resolveArtistModelTag(obj.modelTag != null ? obj.modelTag : obj.modelTags),
         createdAt: String(obj.createdAt ?? ''),
         updatedAt: String(obj.updatedAt ?? ''),
     };

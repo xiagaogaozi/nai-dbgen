@@ -13,10 +13,10 @@
 
 /* ?v= 打破浏览器对 @import 子表的强缓存（改子 CSS 后须 bump） */
 @import url('./src/ui/common/tokens.css?v=20260929a');
-@import url('./src/ui/common/components.css?v=20260929h');
+@import url('./src/ui/common/components.css?v=20261006a');
 @import url('./src/ui/slot-editor/slot-editor.css?v=20260927a');
-@import url('./src/ui/panels/panels.css?v=20260929c');
+@import url('./src/ui/panels/panels.css?v=20261006a');
 @import url('./src/ui/drawer/drawer.css?v=20260924a');
 @import url('./src/ui/workbench/workbench.css?v=20260930d');
 @import url('./src/ui/slot-widget/slot-widget.css?v=20260926g');
-@import url('./src/ui/floating-ball/floating-ball.css?v=20260928a');
+@import url('./src/ui/floating-ball/floating-ball.css?v=20261006a');

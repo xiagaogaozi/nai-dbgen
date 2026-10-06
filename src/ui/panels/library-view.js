@@ -43,6 +43,7 @@ import { el, setText } from './_lib/panel-kit.js';
  *   }|null|undefined,
  *   sortOptions?: { value: string, label: string }[],
  *   defaultSort?: string,
+ *   filterBar?: HTMLElement,
  * }} [opts]
  *   `cover: true` 画师串等应有图的类型（无图也保留同比例占位）；缺省/false 为紧凑文字卡
  *   `titleBadge` 返回名字旁 muted 提示（如未填 Key）
@@ -86,7 +87,11 @@ export function mountLibraryView(root, deps, opts) {
     status.setAttribute('aria-live', 'polite');
     const scroller = el('div', 'nd-library-view__scroller');
     scroller.appendChild(grid);
-    shell.append(toolbar.el, status, scroller);
+    shell.append(toolbar.el);
+    if (opts?.filterBar instanceof Element) {
+        shell.appendChild(opts.filterBar);
+    }
+    shell.append(status, scroller);
     root.appendChild(shell);
 
     /** @type {{ destroy: () => void }[]} */

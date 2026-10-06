@@ -28,12 +28,18 @@ export function fnv1aHex(str) {
 
 /**
  * 画师串示例图的本机路径。按名称计算，手机和电脑导入同一条时路径相同。
+ * v5 沿用只含名称的旧路径。其它版本把版本算进路径，避免同名不同版本互相覆盖封面。
  * @param {string} name
  * @param {'ref'|'card'} kind
+ * @param {string} [modelTag]
  * @returns {string}
  */
-export function artistLocalImageId(name, kind) {
-    return `artist-${kind}:${sanitizeArtistIdForFile(name)}`;
+export function artistLocalImageId(name, kind, modelTag) {
+    const tag = modelTag != null && String(modelTag) !== '' && String(modelTag) !== 'v5'
+        ? String(modelTag)
+        : '';
+    const key = tag ? `${name}\u0000${tag}` : String(name);
+    return `artist-${kind}:${sanitizeArtistIdForFile(key)}`;
 }
 
 /**

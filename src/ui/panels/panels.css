@@ -176,6 +176,7 @@
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-library-view > .nd-library-toolbar,
+:is(#nai-dbgen-root, .nd-root) .nd-library-view > .nd-model-tag-filter,
 :is(#nai-dbgen-root, .nd-root) .nd-library-view > .nd-library-view__status {
     flex: 0 0 auto;
 }

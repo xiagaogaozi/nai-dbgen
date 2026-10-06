@@ -250,6 +250,22 @@ button.nd-fab.nd-fab.nd-fab--busy {
     display: none;
 }
 
+.nd-root.nd-fab-panel .nd-model-tag-filter {
+    flex: 0 0 auto;
+}
+
+.nd-root.nd-fab-panel .nd-fab-artist-card__tags {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+    color: var(--nd-muted, #9a6b80) !important;
+    font-size: var(--nd-fs-xs, 11px) !important;
+    line-height: 1.2 !important;
+}
+
 .nd-root.nd-fab-panel .nd-fab-panel__search {
     flex: 0 0 auto;
     width: 100% !important;

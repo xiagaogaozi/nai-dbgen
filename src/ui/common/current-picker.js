@@ -8,6 +8,11 @@
 
 import { t } from '../i18n/zh-CN.js';
 import { paintSafeCover } from './safe-url.js';
+import {
+    artistMatchesModelFilter,
+    createArtistModelTagFilter,
+    formatArtistModelTag,
+} from './artist-model-tags.js';
 
 /**
  * @param {object} item
@@ -44,6 +49,7 @@ function idOf(item) {
  * @param {boolean} [deps.cover=false] 仅有图片字段的类型传 true；false 时不生成封面节点
  * @param {(item: object|null|undefined) => (string|null|Promise<string|null>)} [deps.resolveCover]
  *   有图类型须注入（画师串经 artistFileUrl.cardUrl）；未传则无图占位
+ * @param {boolean} [deps.modelTagFilter=false] 画师串选择：结果里可按 v4.5 / v5 过滤
  * @returns {{ destroy: () => void, refresh: () => Promise<void> }}
  *
  * D60：不自动订阅设置变更。外部（抽屉 / 管理台）改了激活项或列表后，
@@ -66,6 +72,14 @@ export function mountCurrentPicker(root, deps) {
     const getLabel = deps?.getLabel;
     const showCover = deps?.cover === true;
     const resolveCover = typeof deps?.resolveCover === 'function' ? deps.resolveCover : null;
+    const modelTagFilter = deps?.modelTagFilter === true;
+    const tagFilter = modelTagFilter
+        ? createArtistModelTagFilter({
+            onChange: () => {
+                if (resultsOpen) renderResults(input.value);
+            },
+        })
+        : null;
 
     const shell = document.createElement('div');
     shell.className = 'nd-picker';
@@ -165,8 +179,11 @@ export function mountCurrentPicker(root, deps) {
      */
     function renderResults(query) {
         results.replaceChildren();
+        if (tagFilter) results.appendChild(tagFilter.el);
         const q = String(query || '').trim().toLowerCase();
+        const modelTag = tagFilter ? tagFilter.getValue() : '';
         const filtered = items.filter((item) => {
+            if (!artistMatchesModelFilter(item, modelTag)) return false;
             if (!q) return true;
             return labelOf(item, getLabel).toLowerCase().includes(q);
         });
@@ -212,7 +229,11 @@ export function mountCurrentPicker(root, deps) {
             const strong = document.createElement('strong');
             strong.textContent = label;
             meta.appendChild(strong);
-            if (item.category != null || item.subtitle != null) {
+            if (modelTagFilter) {
+                const small = document.createElement('small');
+                small.textContent = formatArtistModelTag(item);
+                meta.appendChild(small);
+            } else if (item.category != null || item.subtitle != null) {
                 const small = document.createElement('small');
                 small.textContent = String(item.category ?? item.subtitle);
                 meta.appendChild(small);
@@ -285,6 +306,7 @@ export function mountCurrentPicker(root, deps) {
             input.removeEventListener('input', onInput);
             clearBtn.removeEventListener('click', onClear);
             document.removeEventListener('pointerdown', onDocPointer);
+            tagFilter?.destroy();
             shell.remove();
             void boot;
         },

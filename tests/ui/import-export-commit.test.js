@@ -258,6 +258,93 @@ describe('ui/common/import-export commitImport (D44)', () => {
         return parts.join('\n');
     }
 
+    it('rows without ids do not confirm a full overwrite when the library cannot be read', async () => {
+        const root = document.createElement('div');
+        document.body.appendChild(root);
+        let called = 0;
+        let confirmed = 0;
+        const handle = mountImportExport(root, {
+            importJson: async () => {
+                called += 1;
+                return { imported: 2, skipped: 0, errors: [] };
+            },
+            exportJson: async () => {
+                throw new Error('导出失败');
+            },
+            confirmOverwrite: async () => {
+                confirmed += 1;
+                return false;
+            },
+        });
+        const { paste, parseBtn, commitBtn, strategySelect } = findControls(root);
+        paste.value = JSON.stringify([
+            { name: '默认', positivePrompt: 'a', negativePrompt: 'b', sequence: 0 },
+            { name: '冰常用1-1', positivePrompt: 'a', negativePrompt: 'b', sequence: 1 },
+        ]);
+        await click(parseBtn);
+        strategySelect.value = 'overwrite';
+        await click(commitBtn);
+        assert.equal(confirmed, 0);
+        assert.equal(called, 1);
+        handle.destroy();
+    });
+
+    it('countOverwrite zero skips the dialog; a real overlap confirms that count only', async () => {
+        const root = document.createElement('div');
+        document.body.appendChild(root);
+        let called = 0;
+        /** @type {number[]} */
+        const counts = [];
+        const handle = mountImportExport(root, {
+            importJson: async () => {
+                called += 1;
+                return { imported: 2 };
+            },
+            exportJson: async () => {
+                throw new Error('不应靠整库导出来数覆盖');
+            },
+            countOverwrite: async () => 0,
+            confirmOverwrite: async (count) => {
+                counts.push(count);
+                return false;
+            },
+        });
+        const controls = findControls(root);
+        controls.paste.value = JSON.stringify([
+            { name: '甲' },
+            { name: '乙' },
+        ]);
+        await click(controls.parseBtn);
+        controls.strategySelect.value = 'overwrite';
+        await click(controls.commitBtn);
+        assert.deepEqual(counts, []);
+        assert.equal(called, 1);
+        handle.destroy();
+
+        const rootHit = document.createElement('div');
+        document.body.appendChild(rootHit);
+        let calledHit = 0;
+        const handleHit = mountImportExport(rootHit, {
+            importJson: async () => {
+                calledHit += 1;
+                return { imported: 1 };
+            },
+            countOverwrite: async (rows) => rows.filter((row) => row.name === '甲').length,
+            confirmOverwrite: async (count) => {
+                counts.push(count);
+                return false;
+            },
+        });
+        const hit = findControls(rootHit);
+        hit.paste.value = JSON.stringify([{ name: '甲' }, { name: '乙' }]);
+        await click(hit.parseBtn);
+        hit.strategySelect.value = 'overwrite';
+        await click(hit.commitBtn);
+        assert.deepEqual(counts, [1]);
+        assert.equal(calledHit, 0);
+        handleHit.destroy();
+    });
+
     it('import mode has no export controls', () => {
         const root = document.createElement('div');
         document.body.appendChild(root);

@@ -77,6 +77,24 @@ describe('artist model', () => {
         assert.equal(a.positivePrompt, 'p');
         assert.equal(a.referenceImageRef, null);
         assert.equal(a.cardImageRef, null);
+        assert.equal(a.modelTag, 'v5');
+        const tagged = createArtist({
+            name: 'y',
+            positivePrompt: 'p',
+            negativePrompt: 'n',
+            modelTag: 'v4.5',
+        }, { id: 'ar2', now: 't0' });
+        assert.equal(tagged.modelTag, 'v4.5');
+        const fromList = createArtist({
+            name: 'z',
+            positivePrompt: 'p',
+            negativePrompt: 'n',
+            modelTags: ['nope', 'v4.5', 'v5'],
+        }, { id: 'ar3', now: 't0' });
+        assert.equal(fromList.modelTag, 'v4.5');
+        const legacy = validateArtist({ ...a, modelTag: undefined });
+        assert.equal(legacy.ok, true);
+        assert.equal(legacy.value.modelTag, 'v5');
         assert.equal(validateArtist(a).ok, true);
         assert.equal(validateArtist({ ...a, name: '' }).ok, false);
         assert.equal(nextArtistSequence([a, { sequence: 7 }]), 8);
@@ -249,14 +267,20 @@ describe('artist import/export', () => {
         assert.equal(cached.value.some((row) => row.id === b.referenceImageRef), false);
     });
 
-    it('export errors when referenced image file is missing', async () => {
+    it('exports a null image when the referenced file is missing', async () => {
         const { repo, imageRepo } = makeRepo();
         await repo.importJson([FIXTURE[0]], { strategy: 'skip' });
         const list = await repo.list();
         await imageRepo.remove(list.value[0].referenceImageRef);
-        const exp = await repo.exportJson();
-        assert.equal(exp.ok, false);
-        assert.match(exp.error.message, /原图|不存在|无法读取/);
+        /** @type {string[]} */
+        const warnings = [];
+        const exp = await repo.exportJson({
+            onWarning: (message) => warnings.push(message),
+        });
+        assert.equal(exp.ok, true);
+        assert.equal(exp.value[0].referenceImage, null);
+        assert.equal(exp.value[0].positivePrompt, FIXTURE[0].positivePrompt);
+        assert.match(warnings[0], /原图|不存在|无法读取/);
     });
 
     it('removeArtistPreviewFiles deletes both reference and card', async () => {
@@ -415,6 +439,110 @@ describe('artist presets import format', () => {
         assert.equal(listed.value.length, N);
         // 旧实现：逐条 setTimeout + 大图逐片 timer 可达数分钟；健康路径应远低于 2s
         assert.ok(ms < 2000, `500 条导入过慢: ${ms.toFixed(0)}ms`);
+    });
+});
+
+describe('artist model tags', () => {
+    it('backfills legacy rows as v5 and stamps checked tags on import', async () => {
+        const { repo, db } = makeRepo();
+        await db.put(IDB_STORES.ARTISTS, {
+            schemaVersion: 1,
+            id: 'old',
+            name: '旧串',
+            sequence: 0,
+            positivePrompt: 'p',
+            negativePrompt: 'n',
+            referenceImageRef: null,
+            cardImageRef: null,
+            createdAt: 't',
+            updatedAt: 't',
+        });
+
+        const listed = await repo.list();
+        assert.equal(listed.ok, true);
+        assert.equal(listed.value[0].modelTag, 'v5');
+        assert.equal((await db.get(IDB_STORES.ARTISTS, 'old')).modelTag, 'v5');
+        assert.equal('modelTags' in (await db.get(IDB_STORES.ARTISTS, 'old')), false);
+
+        const imp = await repo.importJson([
+            {
+                name: 'v45',
+                sequence: 1,
+                positivePrompt: 'a',
+                negativePrompt: 'b',
+                referenceImage: TINY_PNG,
+            },
+        ], { strategy: 'overwrite', modelTag: 'v4.5' });
+        assert.equal(imp.ok, true);
+        const stamped = (await repo.list()).value.find((row) => row.name === 'v45');
+        assert.equal(stamped.modelTag, 'v4.5');
+        assert.equal(stamped.referenceImageRef, artistLocalImageId('v45', 'ref', 'v4.5'));
+        assert.notEqual(stamped.referenceImageRef, artistLocalImageId('v45', 'ref'));
+
+        const sameName = await repo.importJson([
+            {
+                name: '旧串',
+                sequence: 3,
+                positivePrompt: 'v45-body',
+                negativePrompt: 'n',
+                referenceImage: TINY_PNG,
+            },
+        ], { strategy: 'overwrite', modelTag: 'v4.5' });
+        assert.equal(sameName.ok, true);
+        assert.equal(sameName.value.imported, 1);
+        assert.equal(sameName.value.skipped, 0);
+        const twins = (await repo.list()).value.filter((row) => row.name === '旧串');
+        assert.equal(twins.length, 2);
+        assert.equal(twins.find((row) => row.modelTag === 'v5').positivePrompt, 'p');
+        assert.equal(twins.find((row) => row.modelTag === 'v4.5').positivePrompt, 'v45-body');
+        assert.notEqual(
+            twins.find((row) => row.modelTag === 'v5').id,
+            twins.find((row) => row.modelTag === 'v4.5').id,
+        );
+
+        const replaced = await repo.importJson([
+            {
+                name: '旧串',
+                sequence: 4,
+                positivePrompt: 'replaced',
+                negativePrompt: 'n',
+                referenceImage: null,
+            },
+        ], { strategy: 'overwrite', modelTag: 'v5' });
+        assert.equal(replaced.ok, true);
+        const after = (await repo.list()).value.filter((row) => row.name === '旧串');
+        assert.equal(after.length, 2);
+        assert.equal(after.find((row) => row.modelTag === 'v5').positivePrompt, 'replaced');
+        assert.equal(after.find((row) => row.modelTag === 'v5').id, 'old');
+        assert.equal(after.find((row) => row.modelTag === 'v4.5').positivePrompt, 'v45-body');
+
+        const exp = await repo.exportJson();
+        assert.equal(exp.ok, true);
+        for (const row of exp.value) {
+            assert.deepEqual(Object.keys(row), [...ARTIST_EXPORT_FIELD_ORDER]);
+            assert.equal('modelTag' in row, false);
+        }
+    });
+
+    it('export modelTag returns only that version', async () => {
+        const { repo } = makeRepo();
+        await repo.importJson([{
+            name: '同名',
+            sequence: 1,
+            positivePrompt: 'v5-body',
+            negativePrompt: 'n',
+            referenceImage: null,
+        }], { modelTag: 'v5' });
+        await repo.importJson([{
+            name: '同名',
+            sequence: 2,
+            positivePrompt: 'v45-body',
+            negativePrompt: 'n',
+            referenceImage: null,
+        }], { modelTag: 'v4.5' });
+        const exp = await repo.exportJson({ modelTag: 'v4.5' });
+        assert.equal(exp.ok, true);
+        assert.deepEqual(exp.value.map((row) => row.positivePrompt), ['v45-body']);
     });
 });
 

@@ -15,6 +15,9 @@ import {
     createChangeEmitter,
 } from '../import-export.js';
 import {
+    ARTIST_MODEL_TAGS,
+    artistDuplicateKey,
+    resolveArtistModelTag,
     sortArtistsBySequence,
     validateArtist,
     nextArtistSequence,
@@ -53,6 +56,15 @@ async function dropLocalArtistBlob(imageRepo, ref) {
         return;
     }
     await imageRepo.remove(ref);
+}
+
+/**
+ * @param {any} row
+ * @returns {boolean}
+ */
+function rowHasCanonicalModelTag(row) {
+    if (!ARTIST_MODEL_TAGS.includes(String(row?.modelTag ?? ''))) return false;
+    return !Array.isArray(row?.modelTags);
 }
 
 /**
@@ -171,9 +183,36 @@ export function createArtistRepo(deps) {
         }
     }
 
+    /**
+     * 旧库没有模型版本时写成 v5。写失败不挡住本次读取。
+     * @param {any[]} rows
+     * @param {import('../../../domain/model/artist.js').ArtistString[]} items
+     */
+    async function backfillMissingModelTags(rows, items) {
+        /** @type {Set<string>} */
+        const stale = new Set();
+        for (const row of rows || []) {
+            if (!row || row.id == null || rowHasCanonicalModelTag(row)) continue;
+            stale.add(String(row.id));
+        }
+        if (!stale.size) return;
+        const patch = items.filter((item) => stale.has(item.id));
+        if (!patch.length) return;
+        try {
+            await bulkWrite(patch);
+        } catch {
+            // 回填失败时界面仍按规范化结果展示 v5
+        }
+    }
+
     return {
         async list() {
-            return catchToResult(async () => normalizeList(await db.getAll(storeName)), mapErr, Ok, Err);
+            return catchToResult(async () => {
+                const rows = await db.getAll(storeName);
+                const items = normalizeList(rows);
+                await backfillMissingModelTags(rows, items);
+                return items;
+            }, mapErr, Ok, Err);
         },
 
         async get(id) {
@@ -203,18 +242,30 @@ export function createArtistRepo(deps) {
         },
 
         /**
-         * 导出裸数组五字段；按 sequence 排序；取不回图则 Err。
-         * @param {{ onProgress?: (p: { index: number, total: number, name: string }) => void, signal?: AbortSignal }} [opts]
+         * 导出裸数组五字段；按 sequence 排序。
+         * 原图读不到就留空并继续，不中断整次导出。
+         * 传入 modelTag 时只导出该版本。
+         * @param {{
+         *   modelTag?: string,
+         *   onWarning?: (message: string) => void,
+         *   onProgress?: (p: { index: number, total: number, name: string }) => void,
+         *   signal?: AbortSignal,
+         * }} [opts]
          */
         async exportJson(opts = {}) {
             const signal = opts.signal;
             const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
+            const onWarning = typeof opts.onWarning === 'function' ? opts.onWarning : null;
+            const modelTag = opts.modelTag != null && opts.modelTag !== ''
+                ? resolveArtistModelTag(opts.modelTag)
+                : '';
 
             try {
                 const aborted0 = abortIfNeeded(signal);
                 if (aborted0) return aborted0;
 
-                const items = normalizeList(await db.getAll(storeName));
+                const items = normalizeList(await db.getAll(storeName))
+                    .filter((artist) => !modelTag || artist.modelTag === modelTag);
                 /** @type {ReturnType<typeof buildArtistExportRow>[]} */
                 const out = [];
 
@@ -227,19 +278,29 @@ export function createArtistRepo(deps) {
                         onProgress({ index: i + 1, total: items.length, name: artist.name });
                     }
 
-                    const refR = await readLocalArtistDataUrl(
-                        imageRepo,
-                        artist.referenceImageRef,
-                        `「${artist.name}」原图`,
-                    );
-                    if (!refR.ok) return refR;
+                    /** @type {string|null} */
+                    let referenceImage = null;
+                    if (artist.referenceImageRef) {
+                        const refR = await readLocalArtistDataUrl(
+                            imageRepo,
+                            artist.referenceImageRef,
+                            `「${artist.name}」原图`,
+                        );
+                        if (refR.ok && refR.value) {
+                            referenceImage = refR.value;
+                        } else if (onWarning) {
+                            onWarning(refR.ok
+                                ? `「${artist.name}」原图不存在或无法读取`
+                                : (refR.error?.message || `「${artist.name}」原图不存在或无法读取`));
+                        }
+                    }
 
                     out.push(buildArtistExportRow({
                         name: artist.name,
                         sequence: artist.sequence,
                         positivePrompt: artist.positivePrompt,
                         negativePrompt: artist.negativePrompt,
-                        referenceImage: refR.value,
+                        referenceImage,
                     }));
                 }
 
@@ -250,15 +311,18 @@ export function createArtistRepo(deps) {
         },
 
         /**
-         * 导入：自动识别五字段数组或 { presets, images }；按 name 判重；
+         * 导入：自动识别五字段数组或 { presets, images }；按名称加版本判重；
          * 原图上传 + 卡片图生成计入进度；库文件批量写一次。
          * 某条失败记入 errors 并继续；已成功保留。
          * @param {unknown} data
          * @param {{
          *   strategy?: 'skip'|'overwrite'|'rename',
+         *   modelTag?: string,
          *   onProgress?: (p: { index: number, total: number, name: string }) => void,
          *   signal?: AbortSignal,
          * }} [opts]
+         * `modelTag` 打到本次导入的每一条上，只能有一个；不传则视为 v5。
+         * 判重是名称加版本：同名但版本不同会另存，不会覆盖。
          */
         async importJson(data, opts = {}) {
             const normalized = normalizeArtistImportPayload(data);
@@ -285,8 +349,9 @@ export function createArtistRepo(deps) {
 
             try {
                 const existing = normalizeList(await db.getAll(storeName));
+                const importTag = resolveArtistModelTag(opts.modelTag);
                 /** @type {Map<string, import('../../../domain/model/artist.js').ArtistString>} */
-                const byName = new Map(existing.map((e) => [e.name, e]));
+                const byIdentity = new Map(existing.map((e) => [artistDuplicateKey(e.name, e.modelTag), e]));
 
                 /** @type {import('../artist-io.js').ArtistExportRow[]} */
                 let rows;
@@ -341,7 +406,7 @@ export function createArtistRepo(deps) {
                         await yieldMain();
                     }
 
-                    const existingRow = byName.get(row.name);
+                    const existingRow = byIdentity.get(artistDuplicateKey(row.name, importTag));
                     if (existingRow && strategy === 'skip') {
                         skipped += 1;
                         continue;
@@ -376,8 +441,8 @@ export function createArtistRepo(deps) {
                     try {
                         if (row.referenceImage) {
                             const blob = await dataUrlToBlob(row.referenceImage);
-                            referenceImageRef = artistLocalImageId(name, 'ref');
-                            cardImageRef = artistLocalImageId(name, 'card');
+                            referenceImageRef = artistLocalImageId(name, 'ref', importTag);
+                            cardImageRef = artistLocalImageId(name, 'card', importTag);
                             const up = await saveLocalArtistBlob(imageRepo, blob, referenceImageRef);
                             if (!up.ok) {
                                 throw new Error(up.error.message || '原图保存失败');
@@ -419,6 +484,7 @@ export function createArtistRepo(deps) {
                         createdAt,
                         referenceImageRef,
                         cardImageRef,
+                        modelTag: importTag,
                     });
                     const validated = validateArtist(entity);
                     if (!validated.ok) {
@@ -429,7 +495,7 @@ export function createArtistRepo(deps) {
                     }
 
                     toWrite.push(validated.value);
-                    byName.set(validated.value.name, validated.value);
+                    byIdentity.set(artistDuplicateKey(validated.value.name, validated.value.modelTag), validated.value);
                     imported += 1;
                 }
 

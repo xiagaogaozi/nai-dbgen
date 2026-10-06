@@ -223,6 +223,7 @@ export function buildArtistExportRow(row) {
  * @param {string} args.now
  * @param {string|null} args.referenceImageRef
  * @param {string|null} args.cardImageRef
+ * @param {string|undefined} [args.modelTag] 本次导入选定的一个模型版本；缺省视为 v5
  * @param {string} [args.createdAt]
  * @returns {import('../../domain/model/artist.js').ArtistString}
  */
@@ -236,6 +237,7 @@ export function artistFromImportRow(args) {
         negativePrompt: args.row.negativePrompt,
         referenceImageRef: args.referenceImageRef,
         cardImageRef: args.cardImageRef ?? null,
+        modelTag: args.modelTag,
         createdAt: args.createdAt ?? args.now,
         updatedAt: args.now,
     });

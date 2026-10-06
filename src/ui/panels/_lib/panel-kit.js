@@ -246,11 +246,18 @@ export async function confirmDanger(deps, message) {
  *   autoImport?: { data: object|object[], strategy?: string },
  *   replaceOnly?: boolean,
  *   mode?: 'import'|'export',
+ *   leading?: HTMLElement,
+ *   countOverwrite?: (rows: object[]) => number|Promise<number>,
+ *   overwriteMessage?: (count: number) => string,
+ *   bindReload?: (reload: () => Promise<void>) => void,
  * }} [opts]
  * @returns {Promise<{ destroy: () => void }>}
  */
 export async function openImportExportModal(deps, title, expectedKind, importJson, exportJson, onDone, opts) {
     const root = el('div', 'nd-import-modal');
+    if (opts?.leading && typeof Element !== 'undefined' && opts.leading instanceof Element) {
+        root.appendChild(opts.leading);
+    }
     const err = createInlineError();
     root.appendChild(err.el);
 
@@ -326,16 +333,23 @@ export async function openImportExportModal(deps, title, expectedKind, importJso
         },
         importJson: commitImport,
         replaceOnly: opts?.replaceOnly === true,
+        countOverwrite: opts?.countOverwrite,
         confirmOverwrite: async (count) => confirmAsk(deps, {
             title: opts?.replaceOnly ? '替换标签超市' : '覆盖导入',
             message: opts?.replaceOnly
                 ? `将用预览的完整文件替换当前标签超市（现有 ${count} 条记录）。`
-                : `将覆盖 ${count} 条已有记录。`,
+                : (typeof opts?.overwriteMessage === 'function'
+                    ? opts.overwriteMessage(count)
+                    : `将覆盖 ${count} 条已有记录。`),
             okLabel: opts?.replaceOnly ? '确认替换' : '覆盖',
             cancelLabel: '取消',
             okVariant: 'danger',
         }),
     });
+
+    if (typeof opts?.bindReload === 'function') {
+        opts.bindReload(() => handle.reload());
+    }
 
     if (typeof opts?.onCancelIo === 'function') {
         const cancelBtn = createButton({

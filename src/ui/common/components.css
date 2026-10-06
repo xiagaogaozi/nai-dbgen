@@ -264,6 +264,40 @@
     font-weight: 800;
 }
 
+:is(#nai-dbgen-root, .nd-root) .nd-model-tag-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-picker__results > .nd-model-tag-filter {
+    position: sticky;
+    top: -7px;
+    z-index: 1;
+    margin: -7px -7px 6px;
+    padding: 7px 7px 6px;
+    background: var(--nd-surface);
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-model-tag-checks {
+    display: grid;
+    gap: 0.45em;
+    margin: 0 0 0.9em;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-model-tag-checks__row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-model-tag-checks__hint {
+    margin: 0;
+    color: var(--nd-muted);
+    font-size: var(--nd-fs-xs);
+}
+
 /* —— 表单字段 —— */
 :is(#nai-dbgen-root, .nd-root) .nd-field {
     display: grid;

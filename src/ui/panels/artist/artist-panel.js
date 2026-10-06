@@ -9,9 +9,16 @@ import { createButton, createField, createInlineError } from '../../common/contr
 import { paintSafeCover } from '../../common/safe-url.js';
 import { openSlotImageViewer } from '../../common/image-viewer.js';
 import {
+    artistDuplicateKey,
+    artistHasModelTag,
     createArtist,
     nextArtistSequence,
+    resolveArtistModelTag,
 } from '../../../domain/model/artist.js';
+import {
+    createArtistModelTagChecks,
+    createArtistModelTagFilter,
+} from '../../common/artist-model-tags.js';
 import { mountLibraryView } from '../library-view.js';
 import {
     gateCoverUrl,
@@ -56,6 +63,8 @@ export function mountArtistPanel(root, deps) {
     const ids = idNow(deps);
     const settings = settingsApi(deps);
 
+    /** @type {string} 空字符串表示全部版本 */
+    let modelFilter = '';
     /** @type {Map<string, string>} ref+version → gated URL */
     const urlCache = new Map();
     /** @type {(() => void)[]} */
@@ -83,7 +92,10 @@ export function mountArtistPanel(root, deps) {
     }
 
     async function listWithActive() {
-        const items = await awaitRepo(host, repo.list(), '读取画师串失败') || [];
+        const loaded = await awaitRepo(host, repo.list(), '读取画师串失败') || [];
+        const items = modelFilter
+            ? loaded.filter((item) => artistHasModelTag(item, modelFilter))
+            : loaded;
         const activeId = settings.load().activeArtistId;
         /** @type {object[]} */
         const out = [];
@@ -94,7 +106,10 @@ export function mountArtistPanel(root, deps) {
                 ...item,
                 coverUrl: cover || '',
                 __active: isActive,
-                __chips: isActive ? ['当前使用'] : [],
+                __chips: [
+                    ...(isActive ? ['当前使用'] : []),
+                    resolveArtistModelTag(item),
+                ],
             });
         }
         return out;
@@ -102,6 +117,13 @@ export function mountArtistPanel(root, deps) {
 
     /** @type {{ destroy: () => void, refresh: () => Promise<void> }|null} */
     let view = null;
+
+    const tagFilter = createArtistModelTagFilter({
+        onChange: (tag) => {
+            modelFilter = tag;
+            void view?.refresh();
+        },
+    });
 
     view = mountLibraryView(shell, {
         list: listWithActive,
@@ -121,6 +143,7 @@ export function mountArtistPanel(root, deps) {
             { value: 'name-desc', label: '名称倒序' },
             { value: 'updated-desc', label: '最近更新' },
         ],
+        filterBar: tagFilter.el,
         searchKeys: ['name', 'positivePrompt', 'negativePrompt'],
         columns: [
             { key: 'name', label: '名称' },
@@ -164,6 +187,10 @@ export function mountArtistPanel(root, deps) {
      */
     async function openEditor(item) {
         const nameField = createField({ label: '名称', value: item?.name ?? '' });
+        const modelTagField = createArtistModelTagChecks({
+            modelTag: item?.modelTag ?? item?.modelTags,
+            label: '模型版本',
+        });
         const positive = labeledTextarea('正向画师串', item?.positivePrompt ?? '', 4);
         const negative = labeledTextarea('负向画师串', item?.negativePrompt ?? '', 3);
         const savedPreview = readArtistPreviewPrompts();
@@ -187,7 +214,7 @@ export function mountArtistPanel(root, deps) {
         })();
 
         const form = el('div', 'nd-form');
-        form.append(nameField.el, positive.el, negative.el, coverBox, promptField.el, negPreview.el);
+        form.append(nameField.el, modelTagField.el, positive.el, negative.el, coverBox, promptField.el, negPreview.el);
         const err = createInlineError();
         form.appendChild(err.el);
 
@@ -270,21 +297,32 @@ export function mountArtistPanel(root, deps) {
                 err.setMessage('请填写名称');
                 return null;
             }
+            const modelTag = modelTagField.getTag();
+            const all = await awaitRepo(host, repo.list(), '读取画师串失败') || [];
+            const clash = all.find((row) => String(row?.id) !== String(item?.id ?? '')
+                && String(row?.name) === name
+                && resolveArtistModelTag(row) === modelTag);
+            if (clash) {
+                err.setMessage('已有同名且同版本的画师串');
+                return null;
+            }
             let entity;
             if (item) {
                 entity = applyFormFields(item, {
                     name,
                     positivePrompt: positive.getValue(),
                     negativePrompt: negative.getValue(),
+                    modelTag,
+                    modelTags: undefined,
                     updatedAt: ids.now(),
                 });
             } else {
-                const all = await awaitRepo(host, repo.list(), '读取画师串失败') || [];
                 entity = createArtist(
                     {
                         name,
                         positivePrompt: positive.getValue(),
                         negativePrompt: negative.getValue(),
+                        modelTag,
                         sequence: nextArtistSequence(all),
                     },
                     { id: ids.id('ar'), now: ids.now() },
@@ -324,14 +362,30 @@ export function mountArtistPanel(root, deps) {
     async function openImport(mode = 'import') {
         /** @type {AbortController|null} */
         let ioAbort = null;
+        /** @type {() => Promise<void>} */
+        let reloadExport = async () => {};
+        const tagChecks = createArtistModelTagChecks({
+            label: '模型版本',
+            hint: mode === 'export'
+                ? '只导出这个版本。没有原图的串也会导出，图片留空。'
+                : '一条画师串只有一个版本。名称相同但版本不同会另存，不会覆盖。',
+            onChange: mode === 'export'
+                ? () => {
+                    ioAbort?.abort();
+                    void reloadExport();
+                }
+                : undefined,
+        });
         await openImportExportModal(
             deps,
             mode === 'export' ? '导出画师串' : '导入画师串',
             'artist',
             async (data, strategy, progress) => {
+                const modelTag = tagChecks.getTag();
                 ioAbort = new AbortController();
                 const r = await repo.importJson(data, {
                     strategy,
+                    modelTag,
                     signal: ioAbort.signal,
                     onProgress: progress?.onProgress,
                 });
@@ -343,19 +397,51 @@ export function mountArtistPanel(root, deps) {
                 return r.value;
             },
             async (progress) => {
-                ioAbort = new AbortController();
-                const r = await repo.exportJson({
-                    signal: ioAbort.signal,
-                    onProgress: progress?.onProgress,
-                });
-                ioAbort = null;
-                if (!r.ok) throw new Error(r.error?.message || '导出失败');
-                return r.value;
+                ioAbort?.abort();
+                const controller = new AbortController();
+                ioAbort = controller;
+                /** @type {string[]} */
+                const warnings = [];
+                try {
+                    const r = await repo.exportJson({
+                        modelTag: tagChecks.getTag(),
+                        signal: controller.signal,
+                        onProgress: progress?.onProgress,
+                        onWarning: (message) => warnings.push(message),
+                    });
+                    if (!r.ok) throw new Error(r.error?.message || '导出失败');
+                    if (warnings.length) {
+                        toast(host, 'warning', `有 ${warnings.length} 条没有原图，已按无图导出`);
+                    }
+                    return r.value;
+                } finally {
+                    if (ioAbort === controller) ioAbort = null;
+                }
             },
             () => void view?.refresh(),
             {
                 mode,
+                leading: tagChecks.el,
+                bindReload: (reload) => {
+                    reloadExport = reload;
+                },
                 allowBareArray: true,
+                overwriteMessage: (count) => `将覆盖 ${count} 条同名且同版本的已有画师串。其余会新增。`,
+                countOverwrite: async (rows) => {
+                    const listed = await repo.list();
+                    const items = listed?.ok && Array.isArray(listed.value) ? listed.value : [];
+                    const tag = tagChecks.getTag();
+                    const keys = new Set(items.map((item) => artistDuplicateKey(item.name, item.modelTag)));
+                    /** @type {Set<string>} */
+                    const hit = new Set();
+                    for (const row of rows || []) {
+                        const name = String(row?.name ?? '').trim();
+                        if (!name) continue;
+                        const key = artistDuplicateKey(name, tag);
+                        if (keys.has(key)) hit.add(key);
+                    }
+                    return hit.size;
+                },
                 onCancelIo: () => {
                     ioAbort?.abort();
                 },
@@ -373,6 +459,7 @@ export function mountArtistPanel(root, deps) {
             destroyed = true;
             for (const fn of cleanups) fn();
             urlCache.clear();
+            tagFilter.destroy();
             view?.destroy();
             shell.remove();
         },

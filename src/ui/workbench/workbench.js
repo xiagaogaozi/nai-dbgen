@@ -1915,6 +1915,7 @@ export function mountWorkbench(root, deps) {
                 void artistPicker?.refresh();
             },
             cover: true,
+            modelTagFilter: true,
             resolveCover: (item) => deps.artistFileUrl?.cardUrl?.(item) ?? null,
         });
 
