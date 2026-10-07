@@ -34,7 +34,7 @@ describe('workbench artist picker and inline status', () => {
         fake.restore();
     });
 
-    function setup({ subscribe = true, service, items: initialItems, coverUrl } = {}) {
+    function setup({ subscribe = true, service, items: initialItems, coverUrl, artistDraftService } = {}) {
         let settings = {
             ...defaultPluginSettings(),
             activeArtistId: 'a1',
@@ -90,6 +90,7 @@ describe('workbench artist picker and inline status', () => {
                     return { ok: true, value: [] };
                 },
             },
+            artistDraftService,
         };
         const root = document.createElement('div');
         document.body.appendChild(root);
@@ -288,6 +289,58 @@ describe('workbench artist picker and inline status', () => {
         finishGenerate({ ok: true, value: [] });
         await flush();
         assert.equal(status.querySelector('span').textContent, '空闲');
+    });
+
+    it('keeps replace-preview beside generate and writes that image onto the selected artist', async () => {
+        const blob = new Blob(['png-bytes'], { type: 'image/png' });
+        /** @type {object[]} */
+        const replaced = [];
+        const ctx = setup({
+            items: [{
+                id: 'a1',
+                name: 'Alpha',
+                positivePrompt: 'keep positive',
+                negativePrompt: 'keep negative',
+                cardImageRef: 'old-card',
+            }],
+            service: {
+                async writePrompt() {
+                    return { ok: true, value: { caption: emptyNaiCaption(), unmatchedKeys: [] } };
+                },
+                async generateImage() {
+                    return { ok: true, value: [{ blob, mimeType: 'image/png' }] };
+                },
+            },
+            artistDraftService: {
+                async replacePreview(input) {
+                    replaced.push(input);
+                    return {
+                        ok: true,
+                        value: {
+                            id: input.artistId,
+                            name: 'Alpha',
+                            positivePrompt: 'keep positive',
+                            negativePrompt: 'keep negative',
+                        },
+                    };
+                },
+            },
+        });
+        await flush();
+        const genRow = ctx.root.querySelector('.nd-wb-actions--generate');
+        const replaceBtn = button(genRow, '替换画师串预览');
+        assert.ok(replaceBtn);
+        assert.equal(button(ctx.root.querySelector('.nd-wb-artist-actions'), '替换画师串预览'), undefined);
+        const labels = [...genRow.querySelectorAll('button')].map((node) => node.textContent);
+        assert.deepEqual(labels.slice(0, 2), ['出图', '替换画师串预览']);
+
+        fire(button(ctx.root, '出图'), 'click');
+        await flush();
+        fire(replaceBtn, 'click');
+        await flush();
+        assert.equal(replaced.length, 1);
+        assert.equal(replaced[0].artistId, 'a1');
+        assert.equal(replaced[0].coverBlob, blob);
     });
 
     it('unsubscribes the picker on destroy, including repeated destroy calls', async () => {

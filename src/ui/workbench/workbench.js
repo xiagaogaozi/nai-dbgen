@@ -299,6 +299,9 @@ export function mountWorkbench(root, deps) {
     let unlinkArtistResize = () => {};
     /** @type {HTMLButtonElement|null} */
     let saveCurrentArtistBtn = null;
+    /** @type {HTMLButtonElement|null} */
+    let replacePreviewBtn = null;
+    let replacingPreview = false;
     /** @type {Blob|null} */
     let currentPreviewBlob = null;
     let marketCatalog = null;
@@ -1235,6 +1238,7 @@ export function mountWorkbench(root, deps) {
         const positiveRevision = artistPositiveEditRevision;
         const negativeRevision = artistNegativeEditRevision;
         if (saveCurrentArtistBtn) saveCurrentArtistBtn.disabled = normalizedId == null;
+        syncReplacePreviewBtn();
         if (!initialize) persistWorkbenchDraft();
         if (normalizedId == null || !artistRepo || typeof artistRepo.get !== 'function') return null;
 
@@ -1493,12 +1497,56 @@ export function mountWorkbench(root, deps) {
         }
     }
 
+    function syncReplacePreviewBtn() {
+        if (!replacePreviewBtn) return;
+        replacePreviewBtn.disabled = generating || replacingPreview;
+    }
+
+    async function replaceArtistPreview() {
+        if (replacingPreview || generating) return;
+        const artistId = selectedArtistId();
+        if (artistId == null) {
+            toast(host, 'warning', '请先选择画师串');
+            return;
+        }
+        if (typeof Blob === 'undefined' || !(currentPreviewBlob instanceof Blob)) {
+            toast(host, 'warning', '请先出图，再用这张图替换预览');
+            return;
+        }
+        const saveService = deps?.artistDraftService;
+        if (!saveService || typeof saveService.replacePreview !== 'function') {
+            toast(host, 'error', '画师串预览替换不可用');
+            return;
+        }
+        replacingPreview = true;
+        syncReplacePreviewBtn();
+        try {
+            const result = await saveService.replacePreview({
+                artistId,
+                coverBlob: currentPreviewBlob,
+            });
+            if (!result?.ok) {
+                toast(host, 'error', workbenchErrorMessage(result));
+                return;
+            }
+            await artistPicker?.refresh();
+            const name = result.value?.name ? `「${result.value.name}」` : '当前画师串';
+            toast(host, 'success', `已用这张图替换${name}的预览`);
+        } catch (err) {
+            toast(host, 'error', workbenchErrorMessage(err));
+        } finally {
+            replacingPreview = false;
+            if (!destroyed) syncReplacePreviewBtn();
+        }
+    }
+
     function setGeneratingUi(on) {
         generating = on;
         // 进行中禁按钮，防重复计费
         genBtn.disabled = !canSubmitGenerate(on);
         reverseBtn.disabled = !canSubmitGenerate(on);
         img2imgBtn.disabled = !canSubmitGenerate(on);
+        syncReplacePreviewBtn();
         genCancelBtn.disabled = !on;
         if (on) {
             statusPill.setStatus('online');
@@ -1859,8 +1907,14 @@ export function mountWorkbench(root, deps) {
     });
     paramsDetails.el.classList.add('nd-wb-params-details');
 
+    replacePreviewBtn = createButton({
+        label: '替换画师串预览',
+        variant: 'ghost',
+        onClick: () => { void replaceArtistPreview(); },
+    });
+    replacePreviewBtn.title = '把工作台当前这张生成图写成所选画师串的预览图，不改画师串文字。';
     const genActions = el('div', 'nd-wb-actions nd-wb-actions--generate');
-    genActions.append(genBtn, downloadActions, genCancelBtn, clearBtn);
+    genActions.append(genBtn, replacePreviewBtn, downloadActions, genCancelBtn, clearBtn);
     const sourceBar = el('div', 'nd-wb-source');
     const sourceActions = el('div', 'nd-wb-source__actions');
     sourceActions.append(reverseBtn, img2imgBtn, strengthField.el, noiseField.el);

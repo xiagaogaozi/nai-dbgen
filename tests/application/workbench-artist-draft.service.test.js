@@ -146,4 +146,31 @@ describe('workbench artist draft save service', () => {
         assert.equal(result.value.referenceImageRef, null);
         assert.equal(result.value.cardImageRef, null);
     });
+
+    it('replaces only the preview image and keeps the artist text', async () => {
+        const current = artist('artist-1', 9, 'old-original', 'old-card');
+        const events = [];
+        const ctx = serviceFor({ stored: current, events });
+        const coverBlob = new Blob(['preview'], { type: 'image/png' });
+        const result = await ctx.service.replacePreview({
+            artistId: current.id,
+            coverBlob,
+        });
+
+        assert.equal(result.ok, true);
+        assert.equal(result.value.id, current.id);
+        assert.equal(result.value.name, 'Existing');
+        assert.equal(result.value.positivePrompt, 'old positive');
+        assert.equal(result.value.negativePrompt, 'old negative');
+        assert.equal(result.value.sequence, 9);
+        assert.equal(result.value.referenceImageRef, 'new-original');
+        assert.equal(result.value.cardImageRef, 'new-card');
+        assert.deepEqual(events, [
+            'scale-card',
+            'stage-cover-pair',
+            'artist-put',
+            'remove:old-original',
+            'remove:old-card',
+        ]);
+    });
 });

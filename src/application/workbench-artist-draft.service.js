@@ -140,5 +140,74 @@ export function createWorkbenchArtistDraftService(deps) {
             }
             return saved;
         },
+
+        /**
+         * 只用工作台这张图替换画师串预览，不改名称和提示词。
+         * @param {{ artistId?: string|null, coverBlob?: Blob|null }} input
+         */
+        async replacePreview(input) {
+            const artistId = String(input?.artistId ?? '').trim();
+            if (!artistId) {
+                return Err(configError({
+                    code: 'WORKBENCH_ARTIST_TARGET_REQUIRED',
+                    message: '请先选择画师串',
+                }));
+            }
+            const coverBlob = input?.coverBlob ?? null;
+            if (typeof Blob === 'undefined' || !(coverBlob instanceof Blob)) {
+                return Err(configError({
+                    code: 'WORKBENCH_ARTIST_COVER_REQUIRED',
+                    message: '请先出图，再用这张图替换预览',
+                }));
+            }
+            if (typeof deps.makeCardImage !== 'function' || typeof deps.saveCoverPair !== 'function') {
+                return Err(configError({
+                    code: 'WORKBENCH_ARTIST_COVER_UNAVAILABLE',
+                    message: '当前预览图无法保存为画师串封面',
+                }));
+            }
+            const found = await deps.artistRepo.get(artistId);
+            if (!found?.ok) return found;
+            if (!found.value) {
+                return Err(configError({
+                    code: 'WORKBENCH_ARTIST_NOT_FOUND',
+                    message: '当前画师串已不存在，请重新选择',
+                }));
+            }
+            const current = found.value;
+            /** @type {string[]} */
+            const stagedRefs = [];
+            let pair;
+            try {
+                const cardBlob = await deps.makeCardImage(coverBlob);
+                const storageKey = `${current.id}-${idFn('cover')}`;
+                pair = await deps.saveCoverPair(storageKey, coverBlob, cardBlob);
+            } catch (error) {
+                return Err(configError({
+                    code: 'WORKBENCH_ARTIST_COVER_SAVE_FAILED',
+                    message: '画师串封面处理失败',
+                    cause: error,
+                }));
+            }
+            if (!pair?.ok || !pair.value) {
+                return pair?.ok === false ? pair : Err(configError({
+                    code: 'WORKBENCH_ARTIST_COVER_SAVE_FAILED',
+                    message: '画师串封面保存失败',
+                }));
+            }
+            stagedRefs.push(pair.value.referenceImageRef, pair.value.cardImageRef);
+            const saved = await deps.artistRepo.put({
+                ...current,
+                referenceImageRef: pair.value.referenceImageRef,
+                cardImageRef: pair.value.cardImageRef,
+                updatedAt: now(),
+            });
+            if (!saved?.ok) {
+                await removeRefs(stagedRefs);
+                return saved;
+            }
+            await removeRefs([current.referenceImageRef, current.cardImageRef]);
+            return saved;
+        },
     };
 }
