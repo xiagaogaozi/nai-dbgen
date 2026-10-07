@@ -135,6 +135,50 @@ export function artistHasModelTag(artist, tag) {
 }
 
 /**
+ * 把勾选的画师串改成同一个模型版本。
+ * 目标版本上已有同名的跳过；自己已经是这个版本的不写。
+ * 同一次里两条同名都要改过去时，只改列表里靠前的那条。
+ * @param {Array<{ id?: unknown, name?: unknown, modelTag?: unknown, modelTags?: unknown }>|null|undefined} artists
+ * @param {Iterable<unknown>} selectedIds
+ * @param {unknown} tag
+ * @returns {{ tag: string, updateIds: string[], skippedNames: string[] }}
+ */
+export function planArtistModelTagBatch(artists, selectedIds, tag) {
+    const target = String(tag ?? '');
+    if (!ARTIST_MODEL_TAGS.includes(target)) {
+        return { tag: target, updateIds: [], skippedNames: [] };
+    }
+    const selected = new Set();
+    for (const id of selectedIds || []) {
+        if (id != null && String(id) !== '') selected.add(String(id));
+    }
+    /** @type {Set<string>} */
+    const held = new Set();
+    const rows = Array.isArray(artists) ? artists : [];
+    for (const item of rows) {
+        if (item?.id == null || selected.has(String(item.id))) continue;
+        held.add(artistDuplicateKey(String(item.name ?? ''), item));
+    }
+    /** @type {string[]} */
+    const updateIds = [];
+    /** @type {string[]} */
+    const skippedNames = [];
+    for (const item of rows) {
+        if (item?.id == null || !selected.has(String(item.id))) continue;
+        const name = String(item.name ?? '');
+        const key = artistDuplicateKey(name, target);
+        if (held.has(key)) {
+            if (resolveArtistModelTag(item) !== target) skippedNames.push(name);
+            continue;
+        }
+        held.add(key);
+        if (resolveArtistModelTag(item) === target) continue;
+        updateIds.push(String(item.id));
+    }
+    return { tag: target, updateIds, skippedNames };
+}
+
+/**
  * @param {unknown} obj
  * @returns {{ ok: true, value: ArtistString } | { ok: false, error: import('../../infra/errors.js').AppError }}
  */

@@ -870,6 +870,53 @@
     box-shadow: none;
 }
 
+:is(#nai-dbgen-root, .nd-root) .nd-style-card__select {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    margin: 0;
+    border-radius: var(--nd-radius-xs);
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 0 0 1px rgba(228, 183, 203, 0.9);
+    cursor: pointer;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-style-card__select input[type="checkbox"] {
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    appearance: none !important;
+    box-sizing: border-box !important;
+    width: 16px !important;
+    height: 16px !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 1px solid var(--nd-line-strong) !important;
+    border-radius: var(--nd-radius-xs) !important;
+    background: var(--nd-input-bg) !important;
+    display: inline-grid;
+    place-content: center;
+    cursor: pointer;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-style-card__select input[type="checkbox"]::before {
+    content: "";
+    width: 0.65em;
+    height: 0.65em;
+    transform: scale(0);
+    box-shadow: inset 1em 1em var(--nd-accent);
+    clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-style-card__select input[type="checkbox"]:checked::before {
+    transform: scale(1);
+}
+
 :is(#nai-dbgen-root, .nd-root) .nd-style-card__cover {
     position: relative;
     width: 100% !important;

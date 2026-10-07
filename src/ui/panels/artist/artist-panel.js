@@ -9,10 +9,12 @@ import { createButton, createField, createInlineError } from '../../common/contr
 import { paintSafeCover } from '../../common/safe-url.js';
 import { openSlotImageViewer } from '../../common/image-viewer.js';
 import {
+    ARTIST_MODEL_TAGS,
     artistDuplicateKey,
     artistHasModelTag,
     createArtist,
     nextArtistSequence,
+    planArtistModelTagBatch,
     resolveArtistModelTag,
 } from '../../../domain/model/artist.js';
 import {
@@ -31,9 +33,11 @@ import {
 } from '../_lib/library-logic.js';
 import {
     el,
+    setText,
     labeledTextarea,
     idNow,
     settingsApi,
+    confirmAsk,
     confirmDanger,
     openImportExportModal,
     openFormModal,
@@ -115,8 +119,55 @@ export function mountArtistPanel(root, deps) {
         return out;
     }
 
-    /** @type {{ destroy: () => void, refresh: () => Promise<void> }|null} */
+    /** @type {{
+     *   destroy: () => void,
+     *   refresh: () => Promise<void>,
+     *   getSelectedIds: () => string[],
+     *   selectVisible: () => void,
+     *   clearSelection: () => void,
+     * }|null} */
     let view = null;
+
+    const bulkCount = el('span', 'nd-artist-bulk__count');
+    setText(bulkCount, '已选 0');
+    const selectAllBtn = createButton({
+        label: '全选',
+        variant: 'ghost',
+        onClick: () => view?.selectVisible(),
+    });
+    const clearSelectBtn = createButton({
+        label: '取消选择',
+        variant: 'ghost',
+        onClick: () => view?.clearSelection(),
+    });
+    const deleteSelectedBtn = createButton({
+        label: '删除所选',
+        variant: 'danger',
+        onClick: () => void removeItems(view?.getSelectedIds() || []),
+    });
+    deleteSelectedBtn.disabled = true;
+    const switchTagBtns = ARTIST_MODEL_TAGS.map((tag) => {
+        const btn = createButton({
+            label: `改为 ${tag}`,
+            variant: 'ghost',
+            onClick: () => void switchSelectedTag(tag),
+        });
+        btn.disabled = true;
+        return btn;
+    });
+    const bulkBar = el('div', 'nd-artist-bulk');
+    bulkBar.append(selectAllBtn, clearSelectBtn, deleteSelectedBtn, ...switchTagBtns, bulkCount);
+
+    /**
+     * @param {string[]} ids
+     */
+    function syncBulk(ids) {
+        const count = ids.length;
+        setText(bulkCount, `已选 ${count}`);
+        const idle = count === 0;
+        deleteSelectedBtn.disabled = idle;
+        for (const btn of switchTagBtns) btn.disabled = idle;
+    }
 
     const tagFilter = createArtistModelTagFilter({
         onChange: (tag) => {
@@ -144,6 +195,9 @@ export function mountArtistPanel(root, deps) {
             { value: 'updated-desc', label: '最近更新' },
         ],
         filterBar: tagFilter.el,
+        bulkBar,
+        selectable: true,
+        onSelectionChange: syncBulk,
         searchKeys: ['name', 'positivePrompt', 'negativePrompt'],
         columns: [
             { key: 'name', label: '名称' },
@@ -169,7 +223,10 @@ export function mountArtistPanel(root, deps) {
      * @param {string[]} idList
      */
     async function removeItems(idList) {
-        if (!idList.length) return;
+        if (!idList.length) {
+            toast(host, 'warning', '请先勾选画师串');
+            return;
+        }
         const ok = await confirmDanger(deps, `删除选中的 ${idList.length} 条画师串？`);
         if (!ok) return;
         for (const id of idList) {
@@ -180,6 +237,65 @@ export function mountArtistPanel(root, deps) {
             }
         }
         await view?.refresh();
+    }
+
+    /**
+     * 勾选的画师串一起改模型版本。不改名称和提示词。
+     * @param {string} tag
+     */
+    async function switchSelectedTag(tag) {
+        const idList = view?.getSelectedIds() || [];
+        if (!idList.length) {
+            toast(host, 'warning', '请先勾选画师串');
+            return;
+        }
+        const ok = await confirmAsk(deps, {
+            title: '切换模型版本',
+            message: `把选中的 ${idList.length} 条画师串改为 ${tag}？同名而且这个版本已经有的会跳过。`,
+            okLabel: '确认切换',
+            cancelLabel: '取消',
+            okVariant: 'primary',
+        });
+        if (!ok) return;
+        const all = await awaitRepo(host, repo.list(), '读取画师串失败');
+        if (!all) return;
+        const plan = planArtistModelTagBatch(all, idList, tag);
+        const byId = new Map(all.map((item) => [String(item.id), item]));
+        let changed = 0;
+        let failed = false;
+        for (const id of plan.updateIds) {
+            const artist = byId.get(id);
+            if (!artist) continue;
+            const saved = await awaitRepo(host, repo.put({
+                ...artist,
+                modelTag: plan.tag,
+                updatedAt: ids.now(),
+            }), '切换版本失败');
+            if (!saved) {
+                failed = true;
+                break;
+            }
+            changed += 1;
+        }
+        if (!failed) view?.clearSelection();
+        await view?.refresh();
+        if (failed) return;
+        if (plan.skippedNames.length) {
+            const sample = plan.skippedNames.slice(0, 3).join('、');
+            const more = plan.skippedNames.length > 3 ? '…' : '';
+            const skipped = `跳过 ${plan.skippedNames.length} 条同名：${sample}${more}`;
+            toast(
+                host,
+                'warning',
+                changed ? `已改为 ${tag} ${changed} 条，${skipped}` : skipped,
+            );
+            return;
+        }
+        if (changed) {
+            toast(host, 'success', `已把 ${changed} 条改为 ${tag}`);
+            return;
+        }
+        toast(host, 'info', '这些画师串已经是这个版本');
     }
 
     /**

@@ -177,8 +177,22 @@
 
 :is(#nai-dbgen-root, .nd-root) .nd-library-view > .nd-library-toolbar,
 :is(#nai-dbgen-root, .nd-root) .nd-library-view > .nd-model-tag-filter,
+:is(#nai-dbgen-root, .nd-root) .nd-library-view > .nd-artist-bulk,
 :is(#nai-dbgen-root, .nd-root) .nd-library-view > .nd-library-view__status {
     flex: 0 0 auto;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-artist-bulk {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-artist-bulk__count {
+    margin-left: auto;
+    color: var(--nd-muted);
+    font-size: var(--nd-fs-sm);
 }
 
 /* 卡片网格 / 文字卡列表：唯一滚动容器（工具栏固定在上） */

@@ -31,6 +31,7 @@ function el(tag, className) {
  * @param {unknown} [opts.coverUrl] 已解析的展示 URL（会过 safeImageUrl）；由面板经 artistFileUrl 注入解析
  * @param {boolean} [opts.active]
  * @param {boolean} [opts.selected]
+ * @param {(on: boolean) => void} [opts.onSelect] 有则在卡片角上放勾选框
  * @param {boolean} [opts.enabled]
  * @param {(v: boolean) => void} [opts.onEnabledChange] 有则渲染启用开关
  * @param {{ label: string, action?: string, variant?: string, onClick?: () => void }[]} [opts.actions]
@@ -196,6 +197,30 @@ export function createStyleCard(opts) {
     if (actionList.length) children.push(actions);
     root.append(...children);
 
+    /** @type {HTMLInputElement|null} */
+    let selectInput = null;
+    if (typeof opts?.onSelect === 'function') {
+        const selectLabel = el('label', 'nd-style-card__select');
+        selectInput = /** @type {HTMLInputElement} */ (document.createElement('input'));
+        selectInput.type = 'checkbox';
+        selectInput.checked = Boolean(opts.selected);
+        selectInput.setAttribute('aria-label', '选择');
+        const onChange = () => {
+            if (typeof opts.onSelect === 'function') opts.onSelect(Boolean(selectInput?.checked));
+        };
+        const stop = (event) => {
+            event.stopPropagation();
+        };
+        selectInput.addEventListener('change', onChange);
+        selectLabel.addEventListener('click', stop);
+        cleanups.push(() => {
+            selectInput?.removeEventListener('change', onChange);
+            selectLabel.removeEventListener('click', stop);
+        });
+        selectLabel.appendChild(selectInput);
+        root.appendChild(selectLabel);
+    }
+
     let destroyed = false;
     return {
         el: root,
@@ -279,7 +304,9 @@ export function createStyleCard(opts) {
             root.classList.toggle('is-active', Boolean(v));
         },
         setSelected(v) {
-            root.classList.toggle('is-selected', Boolean(v));
+            const on = Boolean(v);
+            root.classList.toggle('is-selected', on);
+            if (selectInput) selectInput.checked = on;
         },
         setEnabled(v) {
             if (enabledToggle) enabledToggle.setValue(Boolean(v));

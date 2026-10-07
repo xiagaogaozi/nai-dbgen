@@ -44,11 +44,21 @@ import { el, setText } from './_lib/panel-kit.js';
  *   sortOptions?: { value: string, label: string }[],
  *   defaultSort?: string,
  *   filterBar?: HTMLElement,
+ *   bulkBar?: HTMLElement,
+ *   selectable?: boolean,
+ *   onSelectionChange?: (ids: string[]) => void,
  * }} [opts]
  *   `cover: true` 画师串等应有图的类型（无图也保留同比例占位）；缺省/false 为紧凑文字卡
  *   `titleBadge` 返回名字旁 muted 提示（如未填 Key）
  *   `cardMeta` 覆盖 columns 拼副标题：分行副标题 + 用途徽标 + 状态
- * @returns {{ destroy: () => void, refresh: () => Promise<void> }}
+ *   `selectable` 为真时卡片可勾选；只给需要批量操作的库打开
+ * @returns {{
+ *   destroy: () => void,
+ *   refresh: () => Promise<void>,
+ *   getSelectedIds: () => string[],
+ *   selectVisible: () => void,
+ *   clearSelection: () => void,
+ * }}
  */
 export function mountLibraryView(root, deps, opts) {
     if (!(root instanceof Element)) {
@@ -57,6 +67,9 @@ export function mountLibraryView(root, deps, opts) {
 
     const searchKeys = opts?.searchKeys || ['name', 'key', 'model', 'baseUrl'];
     const showCover = opts?.cover === true;
+    const selectable = opts?.selectable === true;
+    /** @type {Set<string>} */
+    const selected = new Set();
     const defaultSort = opts?.defaultSort != null ? String(opts.defaultSort) : 'name-asc';
     const sortOptions = Array.isArray(opts?.sortOptions) && opts.sortOptions.length
         ? opts.sortOptions
@@ -91,6 +104,9 @@ export function mountLibraryView(root, deps, opts) {
     if (opts?.filterBar instanceof Element) {
         shell.appendChild(opts.filterBar);
     }
+    if (opts?.bulkBar instanceof Element) {
+        shell.appendChild(opts.bulkBar);
+    }
     shell.append(status, scroller);
     root.appendChild(shell);
 
@@ -104,11 +120,9 @@ export function mountLibraryView(root, deps, opts) {
         grid.replaceChildren();
     }
 
-    function paint() {
-        if (destroyed) return;
-        clearCards();
+    function currentVisible() {
         const state = store.get();
-        const visible = filterSortItems(state.items, {
+        return filterSortItems(state.items, {
             query: state.query,
             sort: state.sort,
             searchKeys,
@@ -116,6 +130,56 @@ export function mountLibraryView(root, deps, opts) {
                 ? (item) => String(item?.kind ?? item?.type ?? '') === state.filter
                 : undefined,
         });
+    }
+
+    function notifySelection() {
+        if (typeof opts?.onSelectionChange === 'function') {
+            opts.onSelectionChange([...selected]);
+        }
+    }
+
+    /**
+     * @param {object[]} items
+     */
+    function pruneSelection(items) {
+        if (!selectable || !selected.size) return;
+        const alive = new Set();
+        for (const item of items || []) {
+            if (item?.id != null) alive.add(String(item.id));
+        }
+        let changed = false;
+        for (const id of selected) {
+            if (!alive.has(id)) {
+                selected.delete(id);
+                changed = true;
+            }
+        }
+        if (changed) notifySelection();
+    }
+
+    function selectVisible() {
+        if (!selectable) return;
+        for (const item of currentVisible()) {
+            if (item?.id != null) selected.add(String(item.id));
+        }
+        notifySelection();
+        paint();
+    }
+
+    function clearSelection() {
+        if (!selected.size) {
+            notifySelection();
+            return;
+        }
+        selected.clear();
+        notifySelection();
+        paint();
+    }
+
+    function paint() {
+        if (destroyed) return;
+        clearCards();
+        const visible = currentVisible();
 
         setText(status, `共 ${visible.length} 条`);
 
@@ -164,8 +228,18 @@ export function mountLibraryView(root, deps, opts) {
                 subtitle = subtitleParts.join(' · ') || undefined;
             }
 
+            const itemId = item?.id != null ? String(item.id) : '';
             const card = createStyleCard({
                 title: String(item?.name ?? item?.key ?? item?.id ?? ''),
+                selected: Boolean(itemId) && selected.has(itemId),
+                onSelect: selectable && itemId
+                    ? (on) => {
+                        if (on) selected.add(itemId);
+                        else selected.delete(itemId);
+                        card.setSelected(on);
+                        notifySelection();
+                    }
+                    : undefined,
                 titleBadge: typeof opts?.titleBadge === 'function'
                     ? (opts.titleBadge(item) || undefined)
                     : undefined,
@@ -217,11 +291,14 @@ export function mountLibraryView(root, deps, opts) {
         if (destroyed) return;
         try {
             const list = await deps.list();
+            const items = Array.isArray(list) ? list : [];
+            pruneSelection(items);
             store.set((s) => ({
                 ...s,
-                items: Array.isArray(list) ? list : [],
+                items,
             }));
         } catch {
+            pruneSelection([]);
             store.set((s) => ({ ...s, items: [] }));
         }
         paint();
@@ -231,6 +308,11 @@ export function mountLibraryView(root, deps, opts) {
 
     return {
         refresh,
+        getSelectedIds() {
+            return [...selected];
+        },
+        selectVisible,
+        clearSelection,
         destroy() {
             if (destroyed) return;
             destroyed = true;
