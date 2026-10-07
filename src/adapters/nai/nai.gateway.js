@@ -10,6 +10,10 @@ import {
     upstreamFromHttpStatus,
 } from '../../infra/errors.js';
 import { apiConfigDisplayName } from '../../domain/model/api-config.js';
+import {
+    parseSubscriptionBalance,
+    resolveSubscriptionUrl,
+} from '../../domain/nai/subscription-balance.js';
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const BASE_BACKOFF_MS = 2000;
@@ -47,6 +51,32 @@ function readUpstreamNote(body) {
     note = String(note).replace(/\s+/g, ' ').trim();
     if (!note) return '';
     return note.length > 160 ? `${note.slice(0, 160)}…` : note;
+}
+
+/**
+ * @param {unknown} body
+ * @returns {Promise<Record<string, unknown>|null>}
+ */
+async function readJsonObject(body) {
+    let text = '';
+    if (typeof body === 'string') {
+        text = body;
+    } else if (body instanceof ArrayBuffer) {
+        text = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(body));
+    } else if (ArrayBuffer.isView(body)) {
+        text = new TextDecoder('utf-8', { fatal: false }).decode(
+            new Uint8Array(body.buffer, body.byteOffset, body.byteLength),
+        );
+    } else if (body && typeof /** @type {{ text?: Function }} */ (body).text === 'function') {
+        text = await /** @type {{ text: Function }} */ (body).text();
+    }
+    if (!String(text).trim()) return null;
+    try {
+        const json = JSON.parse(text);
+        return json && typeof json === 'object' ? json : null;
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -277,6 +307,61 @@ export function createNaiGateway(deps) {
                     hint: '直连失败时：在 config.yaml 开启 enableCorsProxy 并重启，再把传输方式改为「酒馆 CORS 代理」',
                 }),
             };
+        },
+
+        async fetchSubscription(config) {
+            const cfgErr = validateNaiConfig(config);
+            if (cfgErr) return Err(cfgErr);
+
+            const transportName = config.transport === 'st-cors-proxy'
+                ? 'st-cors-proxy'
+                : 'direct';
+            const transport = transports[transportName];
+            if (!transport || typeof transport.send !== 'function') {
+                return Err(configError({
+                    code: 'NAI_TRANSPORT_MISSING',
+                    message: `余额查询通道不可用：${transportName}`,
+                    hint: '请刷新页面或重新启用插件后重试',
+                    context: { transport: transportName },
+                }));
+            }
+            if (transportName === 'st-cors-proxy' && typeof transport.probeEnabled === 'function') {
+                const enabled = await transport.probeEnabled();
+                if (isErr(enabled)) return enabled;
+            }
+
+            const sent = await transport.send(resolveSubscriptionUrl(config.baseUrl), {
+                method: 'GET',
+                headers: {
+                    Accept: 'application/json',
+                    Authorization: `Bearer ${config.apiKey}`,
+                },
+            });
+            if (isErr(sent)) return sent;
+
+            const status = Number(sent.value.status);
+            if (!(status >= 200 && status < 300)) {
+                const note = readUpstreamNote(sent.value.body);
+                const mapped = upstreamFromHttpStatus(status, {
+                    hint: '请检查 API 密钥或接口地址',
+                    context: { transport: transportName },
+                });
+                if (note && status !== 401 && status !== 403) {
+                    mapped.message = `${mapped.message}：${note}`;
+                }
+                return Err(mapped);
+            }
+
+            const json = await readJsonObject(sent.value.body);
+            if (!json) {
+                return Err(upstreamFromHttpStatus(status, {
+                    code: 'NAI_SUBSCRIPTION_BODY',
+                    message: '余额响应无法解析',
+                    hint: '请确认接口地址指向 NovelAI 图像接口（image.novelai.net）',
+                    context: { transport: transportName },
+                }));
+            }
+            return Ok(parseSubscriptionBalance(json));
         },
     };
 }

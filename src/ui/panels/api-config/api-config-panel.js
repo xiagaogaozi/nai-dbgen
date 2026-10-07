@@ -36,6 +36,10 @@ import {
     toastError,
 } from '../_lib/panel-kit.js';
 import { isOk } from '../../../infra/result.js';
+import {
+    formatBalanceDetail,
+    formatBalanceSummary,
+} from '../../../domain/nai/subscription-balance.js';
 
 const PARAM_HINT = '留空则不发送，由接口使用默认值';
 const API_KIND_STORAGE_KEY = 'nai-dbgen:api-kind';
@@ -77,7 +81,12 @@ export function mountApiConfigPanel(root, deps) {
 
     const host = deps.host;
     const llm = deps.llm;
+    const imageGenPort = deps.imageGenPort ?? null;
     const llmSecrets = deps.services?.llmSecrets ?? null;
+    /** @type {Map<string, { fp: string, summary: string, detail: string }>} */
+    const balanceCache = new Map();
+    /** @type {Set<string>} */
+    const balanceInflight = new Set();
     const ids = idNow(deps);
     const settings = settingsApi(deps);
 
@@ -89,6 +98,7 @@ export function mountApiConfigPanel(root, deps) {
     /** @type {(() => void)[]} */
     const cleanups = [];
     let destroyed = false;
+    let viewEpoch = 0;
 
     const segments = createSegmentedTabs({
         ariaLabel: 'API 库类型',
@@ -103,6 +113,7 @@ export function mountApiConfigPanel(root, deps) {
     root.appendChild(shell);
 
     function mountCurrentView() {
+        viewEpoch += 1;
         view?.destroy();
         view = null;
         const kind = segments.getValue() === 'nai' ? 'nai' : 'llm';
@@ -146,14 +157,21 @@ export function mountApiConfigPanel(root, deps) {
                 list: async () => {
                     const items = await awaitRepo(host, naiRepo.list(), '读取 NAI API 失败') || [];
                     const activeId = settings.load().activeNaiConfigId;
-                    return items.map((item) => ({
-                        ...item,
-                        __active: activeId != null && String(activeId) === String(item.id),
-                        __chips: activeId != null && String(activeId) === String(item.id)
-                            ? ['当前使用']
-                            : [],
-                        __key: String(item?.apiKey ?? '').trim() ? '已填 Key' : '未填 Key',
-                    }));
+                    const mapped = items.map((item) => {
+                        const cached = balanceCache.get(String(item.id));
+                        const fresh = cached && cached.fp === balanceFingerprint(item) ? cached.summary : '';
+                        return {
+                            ...item,
+                            __active: activeId != null && String(activeId) === String(item.id),
+                            __chips: [
+                                activeId != null && String(activeId) === String(item.id) ? '当前使用' : null,
+                                fresh || null,
+                            ].filter(Boolean),
+                            __key: String(item?.apiKey ?? '').trim() ? '已填 Key' : '未填 Key',
+                        };
+                    });
+                    void ensureBalances(items);
+                    return mapped;
                 },
                 onCreate: () => void openNaiEditor(null),
                 onEdit: (item) => void openNaiEditor(item),
@@ -178,6 +196,59 @@ export function mountApiConfigPanel(root, deps) {
     }
 
     mountCurrentView();
+
+    /**
+     * 打开 NAI 库后查询每条已填密钥的电量与点数。命中缓存则不再请求。
+     * @param {object[]} items
+     */
+    async function ensureBalances(items) {
+        if (destroyed) return;
+        if (!imageGenPort || typeof imageGenPort.fetchSubscription !== 'function') return;
+        const epoch = viewEpoch;
+        /** @type {{ item: object, fp: string, key: string }[]} */
+        const pending = [];
+        for (const item of items) {
+            if (!String(item?.apiKey ?? '').trim() || item?.id == null) continue;
+            const fp = balanceFingerprint(item);
+            const cached = balanceCache.get(String(item.id));
+            if (cached && cached.fp === fp) continue;
+            const key = `${item.id}:${fp}`;
+            if (balanceInflight.has(key)) continue;
+            balanceInflight.add(key);
+            pending.push({ item, fp, key });
+        }
+        if (!pending.length) return;
+        await Promise.all(pending.map(async ({ item, fp, key }) => {
+            try {
+                const result = await imageGenPort.fetchSubscription(item);
+                if (destroyed || epoch !== viewEpoch) return;
+                if (isOk(result)) {
+                    balanceCache.set(String(item.id), {
+                        fp,
+                        summary: formatBalanceSummary(result.value),
+                        detail: formatBalanceDetail(result.value),
+                    });
+                } else {
+                    balanceCache.set(String(item.id), {
+                        fp,
+                        summary: '余额未知',
+                        detail: result.error?.message || '查询失败',
+                    });
+                }
+            } catch (error) {
+                if (!destroyed && epoch === viewEpoch) {
+                    balanceCache.set(String(item.id), {
+                        fp,
+                        summary: '余额未知',
+                        detail: error instanceof Error ? error.message : '查询失败',
+                    });
+                }
+            } finally {
+                balanceInflight.delete(key);
+            }
+        }));
+        if (!destroyed && epoch === viewEpoch) await view?.refresh();
+    }
 
     /**
      * @param {object} repo
@@ -735,11 +806,32 @@ export function mountApiConfigPanel(root, deps) {
                 { value: 'zip', label: 'ZIP' },
             ],
         });
+        const balanceBox = el('div', 'nd-field');
+        const balanceLabel = el('span', 'nd-field__label');
+        setText(balanceLabel, '电量与点数');
+        const balanceLine = el('p', 'nd-key-preview');
+        balanceLine.setAttribute('aria-live', 'polite');
+        const cachedBalance = item?.id != null ? balanceCache.get(String(item.id)) : null;
+        setText(
+            balanceLine,
+            cachedBalance && cachedBalance.fp === balanceFingerprint(item)
+                ? cachedBalance.detail
+                : '尚未查询',
+        );
+        const balanceHint = el('span', 'nd-field-hint nd-muted');
+        setText(balanceHint, '电量是 Opus 的 V5 用量，点数是 Anlas（订阅剩余 + 购买）。');
+        balanceBox.append(balanceLabel, balanceLine, balanceHint);
         const form = el('div', 'nd-form');
-        form.append(nameField.el, urlField.el, keyField.el, transport.el, decoder.el);
+        form.append(nameField.el, urlField.el, keyField.el, transport.el, decoder.el, balanceBox);
         const modal = await openFormModal(deps, item ? '编辑 NAI API' : '新建 NAI API', form);
+        let querying = false;
         const actions = el('div', 'nd-form__actions');
         actions.append(
+            createButton({
+                label: '查询电量与点数',
+                variant: 'ghost',
+                onClick: () => void queryBalance(),
+            }),
             createButton({ label: '取消', variant: 'ghost', onClick: () => modal.destroy() }),
             createButton({
                 label: '设为当前',
@@ -798,6 +890,43 @@ export function mountApiConfigPanel(root, deps) {
                 );
             return awaitRepo(host, naiRepo.put(entity), '保存失败');
         }
+
+        async function queryBalance() {
+            if (querying) return;
+            if (!imageGenPort || typeof imageGenPort.fetchSubscription !== 'function') {
+                setText(balanceLine, '当前环境无法查询余额');
+                return;
+            }
+            const draft = {
+                ...(item || {}),
+                name: nameField.getValue().trim() || item?.name || '未命名',
+                baseUrl: urlField.getValue().trim(),
+                apiKey: keyField.getValue(),
+                transport: transport.getValue() === 'st-cors-proxy' ? 'st-cors-proxy' : 'direct',
+            };
+            querying = true;
+            setText(balanceLine, '查询中…');
+            modal.setError('');
+            try {
+                const result = await imageGenPort.fetchSubscription(draft);
+                if (!isOk(result)) {
+                    setText(balanceLine, result.error?.message || '查询失败');
+                    return;
+                }
+                const detail = formatBalanceDetail(result.value);
+                setText(balanceLine, detail);
+                if (item?.id != null) {
+                    balanceCache.set(String(item.id), {
+                        fp: balanceFingerprint(draft),
+                        summary: formatBalanceSummary(result.value),
+                        detail,
+                    });
+                    await view?.refresh();
+                }
+            } finally {
+                querying = false;
+            }
+        }
     }
 
     if (typeof llmRepo.onChanged === 'function') {
@@ -824,6 +953,26 @@ export function mountApiConfigPanel(root, deps) {
  * @param {string} raw
  * @returns {string|undefined}
  */
+/**
+ * 缓存键不含密钥原文。
+ * @param {object|null|undefined} config
+ * @returns {string}
+ */
+function balanceFingerprint(config) {
+    const key = String(config?.apiKey ?? '');
+    let hash = 2166136261;
+    for (let i = 0; i < key.length; i += 1) {
+        hash ^= key.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+    }
+    return [
+        String(config?.baseUrl ?? '').trim(),
+        config?.transport === 'st-cors-proxy' ? 'st-cors-proxy' : 'direct',
+        String(hash >>> 0),
+        String(key.length),
+    ].join('\n');
+}
+
 function emptyToUndef(raw) {
     const t = String(raw ?? '').trim();
     return t === '' ? undefined : t;

@@ -355,6 +355,7 @@ function panelDeps(container) {
         services: container.services,
         bus: container.bus,
         llm: container.llm,
+        imageGenPort: container.imageGenPort,
         loadSettings: container.loadSettings,
         saveSettings: (s) => container.settingsStore.save(s),
         serverFiles: container.serverFiles,

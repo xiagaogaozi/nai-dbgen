@@ -256,6 +256,51 @@ describe('createNaiGateway', () => {
         assert.equal(probe.error?.code, 'NAI_CONFIG_KEY');
         assert.equal(calls, 0);
     });
+
+    it('GET /user/subscription 读出电量和点数，密钥不进错误文案', async () => {
+        /** @type {{ url: string, init: RequestInit }[]} */
+        const calls = [];
+        const payload = {
+            trainingStepsLeft: { fixedTrainingStepsLeft: 9898, purchasedTrainingSteps: 32 },
+            usage: { percent: 87, isNegative: false, timeUntilNextPercent: 120 },
+        };
+        const fetchMock = async (url, init) => {
+            calls.push({ url: String(url), init });
+            return new Response(JSON.stringify(payload), { status: 200 });
+        };
+        const gw = createNaiGateway({
+            transports: { direct: createDirectTransport({ fetch: fetchMock }) },
+            decoders: {
+                'json-base64': { decode: decodeJsonBase64 },
+                zip: { decode: decodeZip },
+            },
+        });
+        const result = await gw.fetchSubscription(naiConfig({
+            baseUrl: 'https://image.novelai.net/ai/generate-image',
+            apiKey: 'pst-secret-token-do-not-log',
+        }));
+        assert.equal(isOk(result), true);
+        assert.equal(result.value.points, 9930);
+        assert.equal(result.value.energy.percent, 87);
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].url, 'https://image.novelai.net/user/subscription');
+        assert.equal(calls[0].init.method, 'GET');
+        assert.equal(calls[0].init.headers.Authorization, 'Bearer pst-secret-token-do-not-log');
+
+        const fetchDenied = async () => new Response('{"message":"no"}', { status: 401 });
+        const deniedGw = createNaiGateway({
+            transports: { direct: createDirectTransport({ fetch: fetchDenied }) },
+            decoders: {
+                'json-base64': { decode: decodeJsonBase64 },
+                zip: { decode: decodeZip },
+            },
+        });
+        const deniedResult = await deniedGw.fetchSubscription(naiConfig());
+        assert.equal(isErr(deniedResult), true);
+        assert.equal(deniedResult.error.code, 'NAI_401');
+        assert.equal(String(deniedResult.error.message).includes('pst-secret'), false);
+        assert.equal(String(deniedResult.error.hint || '').includes('停用'), false);
+    });
 });
 
 describe('createLlmGateway', () => {

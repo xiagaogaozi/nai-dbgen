@@ -39,6 +39,9 @@ import { requireArg } from '../infra/validate.js';
  *
  * @property {(config: NaiApiConfig) => Promise<TransportProbeResult>} probe
  *   连通性自检：探测传输通道与响应格式。架构文档 §6.7。
+ *
+ * @property {(config: NaiApiConfig) => Promise<import('../infra/result.js').Ok<import('../domain/nai/subscription-balance.js').SubscriptionBalance>|import('../infra/result.js').Err<import('../infra/errors.js').AppError>>} [fetchSubscription]
+ *   可选。`GET /user/subscription`：电量读 `usage`，点数读 `trainingStepsLeft` 两项之和。
  */
 
 /**

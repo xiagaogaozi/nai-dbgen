@@ -191,6 +191,54 @@ describe('API panel segmented + single library', () => {
 
         api.destroy();
     });
+
+    it('NAI 卡片显示电量和点数', async () => {
+        const root = document.createElement('div');
+        document.body.appendChild(root);
+        const settings = { ...defaultPluginSettings() };
+        sessionStorage.setItem('nai-dbgen:api-kind', 'nai');
+        const api = mountApiConfigPanel(root, {
+            host: { toast: () => {}, openModal: async () => ({ destroy: () => {} }) },
+            loadSettings: () => settings,
+            saveSettings: (next) => Object.assign(settings, next),
+            imageGenPort: {
+                fetchSubscription: async () => Ok({
+                    energy: { percent: 87, unavailable: false, refillSeconds: 120 },
+                    fixedAnlas: 9898,
+                    purchasedAnlas: 32,
+                    points: 9930,
+                }),
+            },
+            repos: {
+                llmConfig: {
+                    list: async () => Ok([]),
+                    onChanged: () => () => {},
+                },
+                naiConfig: {
+                    list: async () => Ok([{
+                        id: 'nai-1',
+                        name: '默认 NAI',
+                        baseUrl: 'https://image.novelai.net',
+                        transport: 'direct',
+                        apiKey: 'pst-test',
+                    }]),
+                    onChanged: () => () => {},
+                },
+            },
+            services: { llmSecrets: null },
+            newId: () => 'x',
+            nowIso: () => '2026-01-01T00:00:00.000Z',
+        });
+
+        let chip = null;
+        for (let i = 0; i < 20 && !chip; i += 1) {
+            await new Promise((r) => setTimeout(r, 10));
+            chip = findAllByClass(root, 'nd-style-card__chip')
+                .find((node) => String(node.textContent || '').includes('电量'));
+        }
+        assert.equal(chip?.textContent, '电量 87% · 点数 9,930');
+        api.destroy();
+    });
 });
 
 describe('style card chrome regression', () => {
