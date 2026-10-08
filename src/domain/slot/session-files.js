@@ -3,6 +3,7 @@
  */
 
 import { isPlainObject, requireArg } from '../../infra/validate.js';
+import { normalizePromptCalls } from '../blocks/recent-prompt-calls.js';
 
 /** 目录文件固定名 */
 export const CHAT_INDEX_FILE_NAME = 'nai-dbgen_index.json';
@@ -41,6 +42,7 @@ export function chatSlotFileName(sessionId) {
  * @property {string} sessionId
  * @property {string} updatedAt
  * @property {import('../model/slot.js').SlotRecord[]} slots
+ * @property {ReturnType<typeof normalizePromptCalls>} promptCalls 外部写词最近几次的生图内容
  */
 
 /**
@@ -70,6 +72,7 @@ export function createChatSlotFile(input) {
         sessionId: String(input.sessionId ?? ''),
         updatedAt: String(input.updatedAt ?? ''),
         slots: Array.isArray(input.slots) ? input.slots : [],
+        promptCalls: normalizePromptCalls(input.promptCalls),
     };
 }
 

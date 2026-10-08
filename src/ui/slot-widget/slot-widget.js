@@ -207,13 +207,14 @@ function fitHostFrameNow(rootEl) {
             html.style.height = 'auto';
             html.style.minHeight = '0';
             html.style.background = 'transparent';
+            html.style.setProperty('overflow', 'hidden', 'important');
         }
         if (body) {
             body.style.margin = '0';
             body.style.height = 'auto';
             body.style.minHeight = '0';
             body.style.background = 'transparent';
-            body.style.overflow = 'hidden';
+            body.style.setProperty('overflow', 'hidden', 'important');
             void body.offsetHeight;
         }
         const top = rootEl.offsetTop || 0;
@@ -243,6 +244,8 @@ function fitHostFrameNow(rootEl) {
             frame.style.setProperty('border', '0', 'important');
             frame.style.setProperty('background', 'transparent', 'important');
             frame.style.setProperty('display', 'block', 'important');
+            frame.style.setProperty('overflow', 'hidden', 'important');
+            frame.setAttribute('scrolling', 'no');
             const parent = frame.parentElement;
             const parentClass = String(parent?.className || '');
             if (parent && !/mes_text|mes_block/.test(parentClass)) {

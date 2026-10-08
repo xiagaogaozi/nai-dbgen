@@ -17,7 +17,8 @@ import { createBlockSet, setBlock } from '../domain/blocks/block-set.js';
 import { VARIABLE_NAMES } from '../domain/template/variable-map.js';
 import { formatCharacterBlock } from '../domain/blocks/character.block.js';
 import { formatCompositionBlock, formatSingleCompositionBlock } from '../domain/blocks/composition.block.js';
-import { formatRecentSlotsBlock } from '../domain/blocks/recent-slots.block.js';
+import { formatPromptReferenceGroups, formatRecentSlotsBlock } from '../domain/blocks/recent-slots.block.js';
+import { selectRecentPromptGroups } from '../domain/blocks/recent-prompt-calls.js';
 import { formatFeatureBlock } from '../domain/blocks/feature.block.js';
 import { formatConstantBlock } from '../domain/blocks/constant.block.js';
 import { activateCharacters } from '../domain/matching/activation.js';
@@ -103,9 +104,18 @@ async function writeFloorPrompt(deps, input, traceId) {
         if (!retainedR.ok) {
             return attachTraceId(retainedR, traceId);
         }
-        recentSlotsText = formatRecentSlotsBlock(
-            retainedR.value.filter((row) => row && !positionIds.has(Number(row.slotId))),
-        );
+        const retainedRows = retainedR.value.filter((row) => row && !positionIds.has(Number(row.slotId)));
+        if (typeof deps.slotRepo.listRecentPromptCalls === 'function') {
+            const callsR = await deps.slotRepo.listRecentPromptCalls();
+            if (!callsR.ok) {
+                return attachTraceId(callsR, traceId);
+            }
+            recentSlotsText = formatPromptReferenceGroups(
+                selectRecentPromptGroups(retainedRows, callsR.value),
+            );
+        } else {
+            recentSlotsText = formatRecentSlotsBlock(retainedRows);
+        }
     }
 
     let blocks = createBlockSet();
@@ -279,6 +289,22 @@ async function writeFloorPrompt(deps, input, traceId) {
         message: '已生成',
         rawText: imagegenRawText,
     });
+    if (captions.length && deps.slotRepo && typeof deps.slotRepo.recordPromptCall === 'function') {
+        const saved = await deps.slotRepo.recordPromptCall({
+            items: captions.map((entry) => {
+                /** @type {{ slotId: number, caption: import('../domain/model/nai-params.js').NaiCaption, size?: string, analysis?: string }} */
+                const item = { slotId: entry.slotId, caption: entry.caption };
+                if (entry.analysis) item.analysis = entry.analysis;
+                if (entry.width != null && entry.height != null) {
+                    item.size = `${entry.width}x${entry.height}`;
+                }
+                return item;
+            }),
+        });
+        if (!saved.ok) {
+            log.warn('recent prompt call was not saved', { traceId, code: saved.error?.code });
+        }
+    }
     return Ok(result);
 }
 

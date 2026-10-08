@@ -21,6 +21,30 @@ function nonEmptyText(value) {
 }
 
 /**
+ * @param {{ slotId?: number, analysis?: string, size?: string, caption?: unknown }|null|undefined} rec
+ * @returns {string}
+ */
+function formatReferenceEntry(rec) {
+    if (!rec) {
+        return '';
+    }
+    /** @type {string[]} */
+    const lines = [`slotid: ${Number(rec.slotId)}`];
+    const analysis = nonEmptyText(rec.analysis);
+    if (analysis != null) {
+        lines.push(`解析: ${analysis}`);
+    }
+    const size = nonEmptyText(rec.size);
+    if (size != null) {
+        lines.push(`尺寸: ${size}`);
+    }
+    if (rec.caption != null) {
+        lines.push(`生图内容: ${JSON.stringify(rec.caption)}`);
+    }
+    return lines.join('\n');
+}
+
+/**
  * 将保留范围内的 slot 记录格式化为「近期生图记录」变量值。
  * @param {SlotRecord[]} records 调用方已排除本轮 slot；本函数再按 slotId 排序
  * @returns {string}
@@ -30,26 +54,22 @@ export function formatRecentSlotsBlock(records) {
         return '';
     }
     const sorted = [...records].sort((a, b) => Number(a.slotId) - Number(b.slotId));
+    return sorted.map((rec) => formatReferenceEntry(rec)).filter(Boolean).join('\n\n');
+}
+
+/**
+ * 按调用先后格式化，不再按 slotId 打乱。一次调用里的多张图紧挨着。
+ * @param {Array<{ items?: Array<{ slotId?: number, analysis?: string, size?: string, caption?: unknown }> }>|null|undefined} groups
+ * @returns {string}
+ */
+export function formatPromptReferenceGroups(groups) {
     /** @type {string[]} */
     const parts = [];
-    for (const rec of sorted) {
-        if (!rec) {
-            continue;
+    for (const group of groups || []) {
+        for (const item of group?.items || []) {
+            const text = formatReferenceEntry(item);
+            if (text) parts.push(text);
         }
-        /** @type {string[]} */
-        const lines = [`slotid: ${Number(rec.slotId)}`];
-        const analysis = nonEmptyText(rec.analysis);
-        if (analysis != null) {
-            lines.push(`解析: ${analysis}`);
-        }
-        const size = nonEmptyText(rec.size);
-        if (size != null) {
-            lines.push(`尺寸: ${size}`);
-        }
-        if (rec.caption != null) {
-            lines.push(`生图内容: ${JSON.stringify(rec.caption)}`);
-        }
-        parts.push(lines.join('\n'));
     }
     return parts.join('\n\n');
 }

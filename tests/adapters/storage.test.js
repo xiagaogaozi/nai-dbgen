@@ -173,6 +173,27 @@ describe('session slot repo', () => {
         assert.equal(img.value.images[0].imageRef, 'img_x');
     });
 
+    it('外部写词只保留本聊天最近 3 次生图内容，写 slot 不会清掉', async () => {
+        const { slots, serverFiles } = makeSlotRepo();
+        for (const name of ['一', '二', '三', '四']) {
+            const saved = await slots.recordPromptCall({
+                items: [{ slotId: 1, caption: { ...emptyNaiCaption(), note: name } }],
+            });
+            assert.equal(saved.ok, true);
+        }
+        const listed = await slots.listRecentPromptCalls();
+        assert.equal(listed.ok, true);
+        assert.deepEqual(listed.value.map((call) => call.items[0].caption.note), ['二', '三', '四']);
+
+        assert.equal((await slots.put(7, [sampleSlot({ messageId: 7 })])).ok, true);
+        const again = await slots.listRecentPromptCalls();
+        assert.deepEqual(again.value.map((call) => call.items[0].caption.note), ['二', '三', '四']);
+
+        const raw = await serverFiles.readJson(chatSlotFileName('sess-1'));
+        assert.equal(raw.value.promptCalls.length, 3);
+        assert.equal(raw.value.slots.length, 1);
+    });
+
     it('读失败（非 404）→ Err，且不覆盖服务器文件', async () => {
         const serverFiles = createMemoryServerFiles({
             seed: {

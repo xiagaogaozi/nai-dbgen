@@ -22,6 +22,7 @@ import {
     retainedAiMessageIds,
     trimRecordsByMessageIds,
 } from '../../../domain/slot/session-retain.js';
+import { appendPromptCall, normalizePromptCalls } from '../../../domain/blocks/recent-prompt-calls.js';
 import { catchToResult, createChangeEmitter } from '../import-export.js';
 
 /**
@@ -72,6 +73,8 @@ export function createSlotRepo(deps) {
     let sessionId = null;
     /** @type {Map<number, SlotRecord>} */
     let slotsById = new Map();
+    /** @type {ReturnType<typeof appendPromptCall>} */
+    let promptCalls = [];
     /** @type {import('../../../infra/errors.js').AppError|null} */
     let loadError = null;
     /** @type {boolean} */
@@ -250,6 +253,7 @@ export function createSlotRepo(deps) {
             sessionId: sid,
             updatedAt,
             slots: records,
+            promptCalls,
         });
         const w = await serverFiles.writeJson(fileName, payload);
         if (isErr(w)) {
@@ -272,6 +276,7 @@ export function createSlotRepo(deps) {
             loaded = true;
             sessionId = sid;
             slotsById = new Map();
+            promptCalls = [];
             return Err(r.error);
         }
         if (r.value == null) {
@@ -279,6 +284,7 @@ export function createSlotRepo(deps) {
             loaded = true;
             sessionId = sid;
             slotsById = new Map();
+            promptCalls = [];
             return Ok(undefined);
         }
         const parsed = parseChatSlotFile(r.value);
@@ -296,10 +302,12 @@ export function createSlotRepo(deps) {
             loaded = true;
             sessionId = sid;
             slotsById = new Map();
+            promptCalls = [];
             return Err(err);
         }
 
         const validated = validateSlotList(parsed.value.slots);
+        promptCalls = normalizePromptCalls(parsed.value.promptCalls);
         if (expectedGen !== loadGeneration) {
             return Ok(undefined);
         }
@@ -334,6 +342,7 @@ export function createSlotRepo(deps) {
             loaded = true;
             sessionId = null;
             slotsById = new Map();
+            promptCalls = [];
             return Err(loadError);
         }
 
@@ -346,6 +355,7 @@ export function createSlotRepo(deps) {
                 loaded = false;
                 loadError = null;
                 slotsById = new Map();
+                promptCalls = [];
                 sessionId = nextId;
             }
             const myGen = loadGeneration;
@@ -516,6 +526,49 @@ export function createSlotRepo(deps) {
             return Ok(applyTrim(allRecords()));
         },
 
+        async listRecentPromptCalls() {
+            const ready = await ensureLoaded();
+            if (isErr(ready)) {
+                return ready;
+            }
+            if (loadError) {
+                return Err(loadError);
+            }
+            return Ok(promptCalls.map((call) => ({
+                at: call.at,
+                items: call.items.map((item) => ({ ...item })),
+            })));
+        },
+
+        /**
+         * @param {{ items?: Array<{ slotId: number, caption: object, size?: string, analysis?: string }> }} input
+         */
+        async recordPromptCall(input) {
+            return catchToResult(async () => {
+                const ready = await ensureLoaded();
+                if (isErr(ready)) {
+                    throw ready.error;
+                }
+                if (loadError) {
+                    throw loadError;
+                }
+                const sid = sessionId;
+                if (!sid) {
+                    throw hostError({
+                        code: 'SESSION_ID_MISSING',
+                        message: '当前没有可用的会话 id',
+                        hint: '请先打开一个聊天',
+                    });
+                }
+                promptCalls = appendPromptCall(promptCalls, {
+                    at: nowIso(),
+                    items: input?.items,
+                });
+                await persist(sid, allRecords());
+                return promptCalls;
+            }, mapErr, Ok, Err);
+        },
+
         async deleteSessionFile(targetSessionId) {
             const sid = String(targetSessionId ?? '');
             if (!sid) {
@@ -532,6 +585,7 @@ export function createSlotRepo(deps) {
             }
             if (sessionId === sid) {
                 slotsById = new Map();
+                promptCalls = [];
                 loaded = false;
                 loadError = null;
                 loadGeneration += 1;
