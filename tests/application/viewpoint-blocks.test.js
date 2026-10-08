@@ -32,9 +32,7 @@ describe('context-collector viewpoint', () => {
         assert.equal(win.messages.length, 2);
         assert.equal(win.messages[0].messageId, 4);
         assert.equal(win.messages[1].messageId, 2);
-        assert.match(win.text, /mid/);
-        assert.match(win.text, /old/);
-        assert.equal(win.text.includes('newest'), false);
+        assert.equal(win.text, 'old\n\nmid');
     });
 
     it('without messageId keeps getRecentAiMessages behavior', () => {

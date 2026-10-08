@@ -60,8 +60,9 @@ export function createContextCollector(deps) {
                 ...m,
                 text: stripSlotTokens(m?.text ?? ''),
             }));
-            // Host 约定新→旧；块文本按同一顺序拼接，供角色/标签/世界书同源消费
-            const text = formatContextBlock(messages);
+            // messages 保持新→旧，世界书扫描要最新楼在前。
+            // 写进「当前上下文」的正文按时间从早到晚，最新楼在最后。
+            const text = formatContextBlock([...messages].reverse());
             return { messages, text };
         },
     };
