@@ -24,7 +24,7 @@ import { formatConstantBlock } from '../domain/blocks/constant.block.js';
 import { activateCharacters } from '../domain/matching/activation.js';
 import { normalizeTagLibraryKind } from '../domain/model/tag.js';
 import { renderPreset } from '../domain/template/preset-renderer.js';
-import { validateNaiCaption, emptyNaiCaption } from '../domain/model/nai-params.js';
+import { validateNaiCaption, captionHasPromptText } from '../domain/model/nai-params.js';
 import { attachReferenceImage } from '../domain/llm/reverse-prompt.js';
 import { parseFlatSingleCaption, parseFlatSlotPlans } from '../domain/model/flat-imagegen.js';
 import { slotCaptionFromLlmItem } from '../domain/model/slot.js';
@@ -242,8 +242,8 @@ async function writeFloorPrompt(deps, input, traceId) {
         const flat = parseFlatSingleCaption(imagegenRawText);
         const fromWrapped = extractSingleCaption(llmR.value.json);
         const captionCandidate = flat?.caption ?? (fromWrapped != null ? fromWrapped : llmR.value.json);
-        const capR = validateNaiCaption(captionCandidate ?? emptyNaiCaption());
-        if (!capR.ok) {
+        const capR = validateNaiCaption(captionCandidate);
+        if (!capR.ok || !captionHasPromptText(capR.value)) {
             recordParseFailure({
                 stage: '生图',
                 code: 'WORKBENCH_CAPTION_INVALID',
@@ -252,7 +252,7 @@ async function writeFloorPrompt(deps, input, traceId) {
             });
             return Err(contractError({
                 code: 'WORKBENCH_CAPTION_INVALID',
-                message: '工作台提示词生成结果格式无效',
+                message: '模型没有按生图格式返回提示词，已停止出图',
                 hint: '请检查模型是否按生图提示词结构输出',
                 traceId,
                 cause: capR.error,
@@ -269,6 +269,21 @@ async function writeFloorPrompt(deps, input, traceId) {
             }
         }
         captions.push(entry);
+    }
+    if (!captions.some((entry) => captionHasPromptText(entry.caption))) {
+        recordParseFailure({
+            stage: '生图',
+            code: 'WORKBENCH_CAPTION_INVALID',
+            message: '工作台提示词生成结果格式无效',
+            rawText: imagegenRawText,
+        });
+        return Err(contractError({
+            code: 'WORKBENCH_CAPTION_INVALID',
+            message: '模型没有按生图格式返回提示词，已停止出图',
+            hint: '请检查模型是否按生图提示词结构输出',
+            traceId,
+            context: { rawText: imagegenRawText, json: llmR.value.json },
+        }));
     }
     const first = captions[0];
     /** @type {WorkbenchWritePromptResult} */
@@ -564,8 +579,8 @@ export function createWorkbenchService(deps) {
             const flat = parseFlatSingleCaption(imagegenRawText);
             const fromWrapped = extractSingleCaption(rawJson);
             const captionCandidate = flat?.caption ?? (fromWrapped != null ? fromWrapped : rawJson);
-            const capR = validateNaiCaption(captionCandidate ?? emptyNaiCaption());
-            if (!capR.ok) {
+            const capR = validateNaiCaption(captionCandidate);
+            if (!capR.ok || !captionHasPromptText(capR.value)) {
                 recordParseFailure({
                     stage: '生图',
                     code: 'WORKBENCH_CAPTION_INVALID',
@@ -574,11 +589,11 @@ export function createWorkbenchService(deps) {
                 });
                 return Err(contractError({
                     code: 'WORKBENCH_CAPTION_INVALID',
-                    message: '工作台提示词生成结果格式无效',
-                    hint: '请检查模型是否按生图提示词结构输出',
-                    traceId,
-                    cause: capR.error,
-                    context: { rawText: imagegenRawText, json: rawJson },
+                message: '模型没有按生图格式返回提示词，已停止出图',
+                hint: '请检查模型是否按生图提示词结构输出',
+                traceId,
+                cause: capR.error,
+                context: { rawText: imagegenRawText, json: rawJson },
                 }));
             }
 

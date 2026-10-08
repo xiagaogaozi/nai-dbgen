@@ -222,6 +222,15 @@ export function validateNaiParams(obj) {
  * 空 caption 骨架（无角色时 char_captions 为空数组）。
  * @returns {NaiCaption}
  */
+// 正向场景或任一角色词有字，才算一份能拿去出图的提示词。空骨架不算。
+export function captionHasPromptText(caption) {
+    const pos = caption && caption.v4_prompt && caption.v4_prompt.caption;
+    if (!pos || typeof pos !== 'object') return false;
+    if (String(pos.base_caption || '').trim()) return true;
+    const chars = Array.isArray(pos.char_captions) ? pos.char_captions : [];
+    return chars.some((item) => String(item && item.char_caption || '').trim());
+}
+
 export function emptyNaiCaption() {
     return {
         v4_prompt: {

@@ -271,6 +271,23 @@ describe('workbench', () => {
         assert.ok(promptMsg.includes('U=Alice in a garden'));
     });
 
+    it('writePrompt rejects a model error body instead of an empty caption', async () => {
+        const banned = [
+            'finishReason: PROHIBITED_CONTENT',
+            'finishMessage: The model output could not be generated. This output contains sensitive words.',
+        ].join('\n');
+        const p = buildPipeline({
+            llmComplete: async () => Ok({ text: banned }),
+        });
+        const r = await p.workbench.writePrompt({
+            naturalLanguage: '画一张',
+            libraryIds: ['lib1'],
+        });
+        assert.equal(r.ok, false);
+        assert.equal(r.error.code, 'WORKBENCH_CAPTION_INVALID');
+        assert.equal(p.naiCalls.length, 0);
+    });
+
     it('writePrompt entryIds sends only the checked entries', async () => {
         const p = buildPipeline({
             llmComplete: async () => Ok({
