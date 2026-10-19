@@ -16,6 +16,7 @@ import {
     upstreamFromHttpStatus,
 } from '../../../infra/errors.js';
 import { apiConfigDisplayName, llmConfigHasKey } from '../../../domain/model/api-config.js';
+import { prepareChatCompletionPrompt } from '../../host/chat-completion.bridge.js';
 import {
     buildCustomChatCompletionRequest,
     buildCustomStatusRequest,
@@ -118,10 +119,21 @@ export function createStBackendLlmTransport(deps) {
                 ? Service.createRequestData(payload)
                 : { ...payload, use_sysprompt: true };
 
-            requestData.stream = false;
+            const prepared = await prepareChatCompletionPrompt(ctx, requestData, traceId);
+            if (!prepared.ok) {
+                return prepared;
+            }
+            // 与现有非流式响应解析保持一致；模板事件之后再固定此传输约定。
+            prepared.value.stream = false;
+            if (req.signal?.aborted) {
+                return Err(upstreamFromHttpStatus(0, {
+                    cause: toAbort(req.signal.reason),
+                    traceId,
+                }));
+            }
 
             try {
-                const result = await Service.sendRequest(requestData, true, req.signal ?? null);
+                const result = await Service.sendRequest(prepared.value, true, req.signal ?? null);
                 const content = result?.content;
                 let text;
                 if (typeof content === 'string') {
