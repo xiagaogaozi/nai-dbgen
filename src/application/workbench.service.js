@@ -27,6 +27,8 @@ import { renderPreset } from '../domain/template/preset-renderer.js';
 import { validateNaiCaption, captionHasPromptText } from '../domain/model/nai-params.js';
 import { attachReferenceImage } from '../domain/llm/reverse-prompt.js';
 import { parseFlatSingleCaption, parseFlatSlotPlans } from '../domain/model/flat-imagegen.js';
+import { completePresetRequest } from './preset-completion.js';
+import { validateImagegenOutput } from './preset-output-validation.js';
 import { slotCaptionFromLlmItem } from '../domain/model/slot.js';
 import { recordLatestGeneration, recordParseFailure } from './parse-debug-log.js';
 import { parseSizeSpec } from '../domain/model/size-spec.js';
@@ -82,6 +84,7 @@ async function writeFloorPrompt(deps, input, traceId) {
     let positions = [];
     /** @type {string[]} */
     let unmatchedKeys = [];
+    let recallLlmCallCount = 0;
     if (!skipRecall) {
         const tagR = await deps.tagRecall.recall({
             contextText: vpR.value.contextText,
@@ -96,6 +99,7 @@ async function writeFloorPrompt(deps, input, traceId) {
         }
         positions = tagR.value.positions ?? [];
         unmatchedKeys = tagR.value.unmatchedKeys ?? [];
+        recallLlmCallCount = tagR.value.llmCallCount ?? (tagR.value.llmCalled ? 1 : 0);
     }
     const positionIds = new Set(positions.map((pos) => Number(pos && pos.slotId)));
     let recentSlotsText = '';
@@ -177,14 +181,18 @@ async function writeFloorPrompt(deps, input, traceId) {
     if (aborted) {
         return aborted;
     }
-    const llmR = await deps.llm.complete({
-        messages: input?.imageDataUrl ? attachReferenceImage(messages, input.imageDataUrl) : messages,
-        config: llmCfgR.value,
-        signal: input.signal,
-        traceId,
+    const llmR = await completePresetRequest({
+        llm: deps.llm, preset: presetR.value, stage: '生图',
+        validate: (response) => validateImagegenOutput(response),
+        request: {
+            messages: input?.imageDataUrl ? attachReferenceImage(messages, input.imageDataUrl) : messages,
+            config: llmCfgR.value,
+            signal: input.signal,
+            traceId,
+        },
     });
     if (!llmR.ok) {
-        if (llmR.error?.context?.rawText != null) {
+        if (llmR.error?.context?.rawText != null && !llmR.error.context.outputValidationRecorded) {
             recordParseFailure({
                 stage: '生图',
                 code: llmR.error.code,
@@ -292,7 +300,7 @@ async function writeFloorPrompt(deps, input, traceId) {
         captions,
         unmatchedKeys,
         messageId: vpR.value.messageId,
-        llmCallCount: skipRecall ? 1 : 2,
+        llmCallCount: recallLlmCallCount + llmR.value.llmCallCount,
     };
     if (first.width != null && first.height != null) {
         result.width = first.width;
@@ -370,7 +378,7 @@ async function writeFloorPrompt(deps, input, traceId) {
  * @property {number} [width] 模型回了合法「尺寸」时填入
  * @property {number} [height]
  * @property {number} [messageId] 楼内流程实际使用的视点楼
- * @property {number} [llmCallCount] 楼内流程为召回 + 生图共 2 次
+ * @property {number} [llmCallCount] 召回与生图调用次数，含结果纠错重试
  */
 
 /**
@@ -510,10 +518,12 @@ export function createWorkbenchService(deps) {
 
             /** @type {import('../ports/llm.port.js').ChatMessage[]} */
             let messages;
+            let imagegenPreset = null;
 
             if (deps.presetRepo && settings.activeImagegenPresetId) {
                 const presetR = await deps.presetRepo.get(settings.activeImagegenPresetId);
                 if (presetR.ok && presetR.value && presetR.value.kind === 'imagegen') {
+                    imagegenPreset = presetR.value;
                     let blocks = createBlockSet();
                     blocks = setBlock(blocks, VARIABLE_NAMES.WORLDINFO, '');
                     blocks = setBlock(blocks, VARIABLE_NAMES.CONTEXT, nl);
@@ -556,14 +566,18 @@ export function createWorkbenchService(deps) {
                 return aborted2;
             }
 
-            const llmR = await deps.llm.complete({
-                messages: input?.imageDataUrl ? attachReferenceImage(messages, input.imageDataUrl) : messages,
-                config: llmCfgR.value,
-                signal: input.signal,
-                traceId,
+            const llmR = await completePresetRequest({
+                llm: deps.llm, preset: imagegenPreset, stage: '生图',
+                validate: (response) => validateImagegenOutput(response, { multiple: false }),
+                request: {
+                    messages: input?.imageDataUrl ? attachReferenceImage(messages, input.imageDataUrl) : messages,
+                    config: llmCfgR.value,
+                    signal: input.signal,
+                    traceId,
+                },
             });
             if (!llmR.ok) {
-                if (llmR.error?.context?.rawText != null) {
+                if (llmR.error?.context?.rawText != null && !llmR.error.context.outputValidationRecorded) {
                     recordParseFailure({
                         stage: '生图',
                         code: llmR.error.code,
@@ -598,7 +612,7 @@ export function createWorkbenchService(deps) {
             }
 
             /** @type {WorkbenchWritePromptResult} */
-            const result = { caption: capR.value, unmatchedKeys: [] };
+            const result = { caption: capR.value, unmatchedKeys: [], llmCallCount: llmR.value.llmCallCount };
             const extras = flat
                 ? { size: flat.size, analysis: flat.analysis }
                 : extractOptionalSizeAnalysis(rawJson);

@@ -14,6 +14,12 @@ import {
 } from '../../infra/validate.js';
 
 export const PRESET_SCHEMA_VERSION = 1;
+export const DEFAULT_PRESET_RETRY_COUNT = 3;
+
+/** 首轮失败后允许追加的结果纠错次数。旧预设缺省为 3。 */
+export function presetRetryCount(preset) {
+    return preset?.retryCount ?? DEFAULT_PRESET_RETRY_COUNT;
+}
 
 /**
  * @typedef {object} PresetPrompt
@@ -45,6 +51,7 @@ export const PRESET_SCHEMA_VERSION = 1;
  * @property {string} id
  * @property {string} name
  * @property {PresetKind} kind
+ * @property {number} retryCount 结果格式/必填字段校验失败后的重试次数，0 禁用
  * @property {PresetPrompt[]} prompts
  * @property {PresetOrderItem[]} prompt_order 单角色场景扁平化（基线 §10 的 order 数组）
  * @property {string} createdAt
@@ -87,6 +94,7 @@ export function createPreset(input, deps) {
         id: deps.id,
         name: String(input.name ?? ''),
         kind: normalizePresetKind(input.kind),
+        retryCount: input.retryCount ?? DEFAULT_PRESET_RETRY_COUNT,
         prompts: normalizePrompts(input.prompts),
         prompt_order: normalizePromptOrder(input.prompt_order, input.prompts),
         createdAt: deps.now,
@@ -122,6 +130,7 @@ export function importFromSillyTavernPreset(stJson, opts, deps) {
     const preset = createPreset({
         name: opts?.name ?? String(stJson.name ?? '导入预设'),
         kind: normalizePresetKind(opts?.kind),
+        retryCount: stJson.retryCount ?? DEFAULT_PRESET_RETRY_COUNT,
         prompts: stJson.prompts,
         prompt_order: order,
     }, deps);
@@ -191,6 +200,10 @@ export function validatePreset(obj) {
     if (!Array.isArray(obj.prompts)) {
         return validationErr('PRESET_PROMPTS', '预设 prompts 必须是数组');
     }
+    const retryCount = presetRetryCount(obj);
+    if (!Number.isSafeInteger(retryCount) || retryCount < 0) {
+        return validationErr('PRESET_RETRY_COUNT', '结果纠错重试次数必须是大于或等于 0 的整数');
+    }
     const ver = schemaVersionMismatch(obj, PRESET_SCHEMA_VERSION, 'PRESET_SCHEMA', '预设');
     if (ver) {
         return ver;
@@ -200,6 +213,7 @@ export function validatePreset(obj) {
         id: String(obj.id),
         name: String(obj.name),
         kind: /** @type {PresetKind} */ (obj.kind),
+        retryCount,
         prompts: normalizePrompts(obj.prompts),
         prompt_order: normalizePromptOrder(obj.prompt_order, obj.prompts),
         createdAt: String(obj.createdAt ?? ''),

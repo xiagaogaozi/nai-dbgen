@@ -34,9 +34,11 @@ describe('preset-panel four kinds', () => {
     let settings = {};
     /** @type {Map<string, object>} */
     let store;
+    let modals;
 
     beforeEach(() => {
         fake = installFakeDom();
+        modals = [];
         settings = {
             ...defaultPluginSettings(),
             activeImagegenPresetId: 'ig-1',
@@ -75,7 +77,7 @@ describe('preset-panel four kinds', () => {
         const api = mountPresetPanel(root, {
             host: {
                 toast: () => {},
-                openModal: async () => ({ destroy: () => {} }),
+                openModal: async (opts) => { modals.push(opts.element); return { destroy: () => {} }; },
             },
             loadSettings: () => settings,
             saveSettings: (next) => { settings = next; },
@@ -120,6 +122,60 @@ describe('preset-panel four kinds', () => {
         const covers = findAllByClass(root, 'nd-style-cover')
             .concat(findAllByClass(root, 'style-cover'));
         assert.equal(covers.length, 0);
+        api.destroy();
+    });
+
+    async function click(node) {
+        assert.ok(node, '按钮应存在');
+        for (const listener of node._listeners || []) {
+            if (listener.type === 'click') await listener.fn({ preventDefault() {}, stopPropagation() {} });
+        }
+        await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    function button(root, label) {
+        return root.querySelectorAll('button').find((node) => node.textContent === label);
+    }
+
+    function retryInput(modal) {
+        const field = findAllByClass(modal, 'nd-field').find((node) =>
+            (node.childNodes || []).some((child) => child.textContent === '结果纠错重试次数'));
+        return field?.querySelector('input');
+    }
+
+    it('shows default 3 and saves independent imagegen/recall counts including zero', async () => {
+        const { root, api } = mount();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await click(button(root, '编辑'));
+        const imageModal = modals.at(-1);
+        assert.equal(retryInput(imageModal).value, '3');
+        retryInput(imageModal).value = '0';
+        await click(button(imageModal, '保存'));
+        assert.equal(store.get('ig-1').retryCount, 0);
+
+        await click(button(root, '召回预设'));
+        await click(button(root, '编辑'));
+        const recallModal = modals.at(-1);
+        assert.equal(retryInput(recallModal).value, '3');
+        retryInput(recallModal).value = '5';
+        await click(button(recallModal, '保存'));
+        assert.equal(store.get('rc-1').retryCount, 5);
+        assert.equal(store.get('ig-1').retryCount, 0);
+        await click(button(root, '编辑'));
+        assert.equal(retryInput(modals.at(-1)).value, '5');
+        api.destroy();
+    });
+
+    it('does not save fractional or negative retry counts', async () => {
+        const { root, api } = mount();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await click(button(root, '编辑'));
+        const modal = modals.at(-1);
+        for (const value of ['-1', '1.5']) {
+            retryInput(modal).value = value;
+            await click(button(modal, '保存'));
+            assert.equal(store.get('ig-1').retryCount, undefined);
+        }
         api.destroy();
     });
 });

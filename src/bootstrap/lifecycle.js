@@ -32,7 +32,7 @@ import { installQuickReplyEntry } from './quick-reply-entry.js';
 const log = createLogger('bootstrap/lifecycle');
 
 /** @type {string} */
-export const PLUGIN_VERSION = '0.2.41';
+export const PLUGIN_VERSION = '0.2.42';
 
 /** @type {string} */
 export const PUBLIC_API_NAME = 'NaiDbGen';

@@ -4,7 +4,9 @@
  * char 可写成 `0.4,0.6 | 提示词`；没有坐标时用画面中心。
  */
 
-const FIELD_RE = /^(slotid|size|analysis|scene|scene_uc|char|char_uc)\s*[:：]\s*(.*)$/;
+const FIELD_RE = /^(?:[-*]\s+)?(?:\*\*)?(slotid|size|analysis|scene|scene_uc|char|char_uc)(?:\*\*)?\s*[:：]\s*(?:\*\*)?\s*(.*)$/i;
+const EXTRA_FIELD_RE = /^(?:[-*]\s+)?(?:\*\*)?[\p{L}_][\p{L}\p{N}_ -]*?(?:\*\*)?\s*[:：]/u;
+const ANALYSIS_HEADING_RE = /^(?:foreground|middle\s*ground|background)\s*[:：]/i;
 
 /**
  * @param {string} raw
@@ -39,13 +41,14 @@ function splitBlocks(text) {
     let field = null;
 
     const push = () => {
-        if (cur && (cur.slotid || cur.scene || cur.chars)) {
+        if (cur) {
             blocks.push(cur);
         }
     };
 
     for (const line of String(text ?? '').split(/\r?\n/)) {
         const trimmed = line.trim();
+        if (/^```/.test(trimmed)) continue;
         if (trimmed === '---') {
             push();
             cur = null;
@@ -54,25 +57,34 @@ function splitBlocks(text) {
         }
         const m = trimmed.match(FIELD_RE);
         if (m) {
-            if (m[1] === 'slotid' && cur && cur.slotid) {
+            const key = m[1].toLowerCase();
+            if (key === 'slotid' && cur && Object.hasOwn(cur, 'slotid')) {
                 push();
                 cur = null;
                 field = null;
             }
             if (!cur) {
-                cur = { chars: [], char_ucs: [] };
+                cur = {};
             }
-            field = m[1];
+            field = key;
             if (field === 'char') {
+                cur.chars ??= [];
                 /** @type {string[]} */ (cur.chars).push(m[2]);
             } else if (field === 'char_uc') {
+                cur.char_ucs ??= [];
                 /** @type {string[]} */ (cur.char_ucs).push(m[2]);
             } else {
                 cur[field] = m[2];
             }
             continue;
         }
-        if (cur && field && trimmed) {
+        // 额外字段是边界，不能串进必填字段；分析中的分层标题仍属于分析正文。
+        if (EXTRA_FIELD_RE.test(trimmed) && !(field === 'analysis' && ANALYSIS_HEADING_RE.test(trimmed))) {
+            field = null;
+            continue;
+        }
+        // 编号、尺寸是单行字段，后续说明不能被当作它们的续行。
+        if (cur && field && trimmed && field !== 'slotid' && field !== 'size') {
             if (field === 'char') {
                 const list = /** @type {string[]} */ (cur.chars);
                 list[list.length - 1] = `${list[list.length - 1]}\n${line.trim()}`;
@@ -86,6 +98,31 @@ function splitBlocks(text) {
     }
     push();
     return blocks;
+}
+
+/** 保留字段存在性，避免把缺失 UC / 角色字段补成空值后误认为完整输出。 */
+export function inspectFlatImagegenFields(text, { requireSlotId = true } = {}) {
+    const blocks = splitBlocks(text);
+    const issues = [];
+    for (const [index, block] of blocks.entries()) {
+        const label = `第 ${index + 1} 段${block.slotid ? `（slotid: ${block.slotid}）` : ''}`;
+        const required = [
+            ...(requireSlotId ? [['slotid', 'slotid']] : []),
+            ['analysis', 'analysis'], ['scene', 'scene'], ['scene_uc', 'scene_uc'],
+            ...((Object.hasOwn(block, 'chars') || Object.hasOwn(block, 'char_ucs'))
+                ? [['chars', 'char'], ['char_ucs', 'char_uc']] : []),
+        ];
+        for (const [key, name] of required) {
+            if (!Object.hasOwn(block, key)) issues.push(`${label}缺少必填字段 ${name}`);
+        }
+        for (const key of ['analysis', 'scene']) {
+            if (Object.hasOwn(block, key) && !String(block[key]).trim()) issues.push(`${label}的 ${key} 不能为空`);
+        }
+        const chars = block.chars || [];
+        const ucs = block.char_ucs || [];
+        if (chars.length !== ucs.length) issues.push(`${label}的 char 与 char_uc 数量不一致（${chars.length}/${ucs.length}），每个角色必须对应一条 char_uc`);
+    }
+    return { recognized: blocks.length > 0, issues };
 }
 
 /**

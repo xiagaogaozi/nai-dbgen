@@ -343,7 +343,7 @@ describe('workbench', () => {
                     });
                 }
                 return Ok({
-                    text: 'slotid: 1\nscene: one garden shot\nscene_uc: bad hands',
+                    text: 'slotid: 1\nanalysis: 花园构图\nscene: one garden shot\nscene_uc: bad hands',
                     json: null,
                 });
             },
@@ -377,7 +377,7 @@ describe('workbench', () => {
         const p = buildPipeline({
             presets: [recall, imagegen],
             llmComplete: async () => Ok({
-                text: 'slotid: 1\nscene: joy\nscene_uc: bad hands\n---\nslotid: 2\nscene: anger\nscene_uc: blur',
+                text: 'slotid: 1\nanalysis: 喜悦构图\nscene: joy\nscene_uc: bad hands\n---\nslotid: 2\nanalysis: 生气构图\nscene: anger\nscene_uc: blur',
                 json: null,
             }),
         });
@@ -414,7 +414,7 @@ describe('workbench', () => {
                     });
                 }
                 return Ok({
-                    text: 'slotid: 1\nscene: first shot\nscene_uc: bad hands\n---\nslotid: 2\nscene: second shot\nscene_uc: blur',
+                    text: 'slotid: 1\nanalysis: 第一镜头\nscene: first shot\nscene_uc: bad hands\n---\nslotid: 2\nanalysis: 第二镜头\nscene: second shot\nscene_uc: blur',
                     json: null,
                 });
             },

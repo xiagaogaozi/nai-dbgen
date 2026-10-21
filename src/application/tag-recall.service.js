@@ -1,7 +1,7 @@
 /**
- * L4 应用层 · 构图库召回：一次 LLM，只传构图 key，回位置数组（生成点 + key）。
+ * L4 应用层 · 构图库召回：传构图 key，回位置数组（生成点 + key），校验失败按预设纠错重试。
  * 张数与生成点由召回决定；无构图候选时仍必须调 LLM（模型只定位置）。
- * 召回失败 / 全部位置丢弃 → Err（不降级）。楼中一次点击恰好 2 次 LLM 的第 1 次。
+ * 召回失败 / 全部位置丢弃 → Err（不降级）。无纠错时为楼中两阶段 LLM 的第 1 次。
  *
  * 裁决 D31：unmatchedKeys + discardedAnchors 上浮到结果与 bus 事件。
  */
@@ -13,6 +13,8 @@ import { createBlockSet, setBlock } from '../domain/blocks/block-set.js';
 import { VARIABLE_NAMES } from '../domain/template/variable-map.js';
 import { renderPreset } from '../domain/template/preset-renderer.js';
 import { recordLatestGeneration, recordParseFailure } from './parse-debug-log.js';
+import { completePresetRequest } from './preset-completion.js';
+import { validateRecallOutput } from './preset-output-validation.js';
 import { formatRecallCandidateLines, reconcileRecalledIds } from '../domain/matching/tag-recall.js';
 import { findAnchorInsertIndex } from '../domain/slot/slot-placer.js';
 import {
@@ -65,6 +67,7 @@ const log = createLogger('application/tag-recall');
  * @property {CompositionPosition[]} positions 已分配会话内唯一 slotid
  * @property {string[]} unmatchedKeys
  * @property {string[]} discardedAnchors 生成点在目标楼匹配不到而被丢弃的原文
+ * @property {number} llmCallCount 本阶段调用次数，含结果纠错重试
  * @property {boolean} llmCalled
  *   裁决 D41：是否实际调用了 llm.complete（供 generateSlots 计数，禁止改写 port）
  */
@@ -213,16 +216,20 @@ export function createTagRecallService(deps) {
                 return aborted2;
             }
 
-            const llmR = await deps.llm.complete({
-                messages,
-                config: configR.value,
-                jsonSchema: RECALL_POSITIONS_JSON_SCHEMA,
-                signal: input?.signal,
-                traceId,
+            const llmR = await completePresetRequest({
+                llm: deps.llm, preset: presetR.value, stage: '召回',
+                validate: (response) => validateRecallOutput(response, { targetFloorText: String(input.targetFloorText ?? '') }),
+                request: {
+                    messages,
+                    config: configR.value,
+                    jsonSchema: RECALL_POSITIONS_JSON_SCHEMA,
+                    signal: input?.signal,
+                    traceId,
+                },
             });
             if (!llmR.ok) {
                 const err = attachTraceId(llmR, traceId);
-                if (err.error?.context?.rawText != null) {
+                if (err.error?.context?.rawText != null && !err.error.context.outputValidationRecorded) {
                     recordParseFailure({
                         stage: '召回',
                         code: err.error.code,
@@ -357,6 +364,7 @@ export function createTagRecallService(deps) {
                 unmatchedKeys,
                 discardedAnchors,
                 llmCalled: true,
+                llmCallCount: llmR.value.llmCallCount,
             });
         },
     };

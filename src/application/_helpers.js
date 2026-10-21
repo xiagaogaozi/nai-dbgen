@@ -109,6 +109,9 @@ export function extractRecalledPositions(json, text) {
     if (payload == null) {
         return { status: 'empty', positions: [] };
     }
+    if (Array.isArray(payload) && payload.length === 0) {
+        return { status: 'empty', positions: [] };
+    }
 
     // 旧格式：纯字符串数组
     if (Array.isArray(payload) && payload.every((x) => typeof x === 'string' || typeof x === 'number')) {
@@ -158,13 +161,17 @@ export function extractRecalledPositions(json, text) {
 
     /** @type {RecalledPositionRaw[]} */
     const positions = [];
-    for (const item of items) {
-        if (!item || typeof item !== 'object') {
+    const issues = [];
+    for (const [index, item] of items.entries()) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+            issues.push(`positions[${index}] 必须是包含 anchor 和 key 的对象`);
             continue;
         }
         const row = /** @type {Record<string, unknown>} */ (item);
         const anchor = row.anchor ?? row.anchorSentence ?? row['生成点'] ?? '';
         const rawKeys = row.key ?? row.keys ?? row.tags;
+        if (typeof anchor !== 'string' || !anchor.trim()) issues.push(`positions[${index}].anchor（生成点）缺失或为空，须填写目标楼原文`);
+        if (!Array.isArray(rawKeys)) issues.push(`positions[${index}].key 缺失或不是数组；没有候选时也必须输出 []`);
         /** @type {string[]} */
         const keys = Array.isArray(rawKeys)
             ? rawKeys.map((x) => (x == null ? '' : String(x)))
@@ -176,9 +183,9 @@ export function extractRecalledPositions(json, text) {
     }
 
     if (positions.length === 0) {
-        return { status: 'invalid', positions: [] };
+        return { status: 'invalid', positions: [], ...(issues.length ? { issues } : {}) };
     }
-    return { status: 'ok', positions };
+    return { status: issues.length ? 'invalid' : 'ok', positions, ...(issues.length ? { issues } : {}) };
 }
 
 /**

@@ -9,7 +9,7 @@
  * - D41：用 tagRecall.llmCalled 计数，禁止改写共享 llm.complete
  * - D54：写锁在本 usecase（键 chatId:messageId）；同键并发共享 Promise；导出 isWriting
  *
- * LLM 次数（需求 §3）：楼中一次点击恰好 2 次——召回 1 + 提示词 1。
+ * 无纠错时为召回、提示词各 1 次；校验失败后的追加调用由各自预设配置。
  * 无构图候选仍调召回；召回失败不降级。
  */
 
@@ -24,6 +24,8 @@ import { renderPreset } from '../domain/template/preset-renderer.js';
 import { placeSlots } from '../domain/slot/slot-placer.js';
 import { createSlotRecord, slotCaptionFromLlmItem } from '../domain/model/slot.js';
 import { parseFlatSlotPlans } from '../domain/model/flat-imagegen.js';
+import { completePresetRequest } from './preset-completion.js';
+import { validateImagegenOutput } from './preset-output-validation.js';
 import { recordLatestGeneration, recordParseFailure } from './parse-debug-log.js';
 import {
     abortErrIfNeeded,
@@ -167,12 +169,12 @@ export function createGenerateSlotsUseCase(deps) {
             });
             if (!tagR.ok) {
                 if (tagR.error?.context?.llmCalled === true) {
-                    llmCallCount += 1;
+                    llmCallCount += tagR.error.context.llmCallCount ?? 1;
                 }
                 return attachTraceId(tagR, traceId);
             }
             if (tagR.value.llmCalled) {
-                llmCallCount += 1;
+                llmCallCount += tagR.value.llmCallCount ?? 1;
             }
 
             const positions = tagR.value.positions ?? [];
@@ -270,15 +272,19 @@ export function createGenerateSlotsUseCase(deps) {
                 return aborted2;
             }
 
-            const promptR = await deps.llm.complete({
-                messages,
-                config: llmCfgR.value,
-                signal,
-                traceId,
+            const promptR = await completePresetRequest({
+                llm: deps.llm, preset: presetR.value, stage: '生图',
+                validate: (response) => validateImagegenOutput(response, { expectedSlotIds: positions.map((p) => p.slotId) }),
+                request: {
+                    messages,
+                    config: llmCfgR.value,
+                    signal,
+                    traceId,
+                },
             });
-            llmCallCount += 1;
+            llmCallCount += promptR.ok ? promptR.value.llmCallCount : (promptR.error.context?.llmCallCount ?? 0);
             if (!promptR.ok) {
-                if (promptR.error?.context?.rawText != null) {
+                if (promptR.error?.context?.rawText != null && !promptR.error.context.outputValidationRecorded) {
                     recordParseFailure({
                         stage: '生图',
                         code: promptR.error.code,
@@ -493,7 +499,7 @@ export function createGenerateSlotsUseCase(deps) {
             });
 
             if (llmCallCount !== 2) {
-                log.info('llmCallCount != 2', { traceId, llmCallCount });
+                log.info('generation completed with output corrections', { traceId, llmCallCount });
             }
 
             return Ok({

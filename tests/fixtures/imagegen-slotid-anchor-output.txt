@@ -1,0 +1,56 @@
+slotid: 1
+size: 1408x640
+analysis: ①三个备选构图中，「动作/姿势：咖啡休憩时间」最契合山吹沙绫坐在Livehouse吧台喝茶休憩的日常情境。喝咖啡条目服装包含黑夹克与白毛衣，与沙绫当前米色针织开衫冲突；微醺托腮含酒类和微醺特征，与喝红茶闲聊不符。故选「动作/姿势：咖啡休憩时间」作为主构图骨架。
+②形象锚点（L0）：山吹沙绫＝茶发，单马尾，卷发，蓝瞳，米色针织开衫；凌云＝黑短发，少年体型，黑色休闲外套。场景锚点（L1）：甜蜜之家吧台，原木台面，暖色灯光。
+③分层构图：
+Foreground: 原木吧台一角，盛有锡兰红茶的白瓷茶杯与水单便签。
+Middle ground: 山吹沙绫坐在高脚凳上微微歪头，茶色微卷的单马尾顺着左肩滑落，双手轻搭台面微笑着与吧台后的凌云交谈；凌云在吧台内侧侧身而立。
+Background: 吧台后排的酒架、暖光吊灯与Livehouse室内环境。
+④镜头：横屏1408x640，中景（cowboy shot），侧前3/4视角，视线自然平视，景深柔和虚化背景。
+⑤可见性清理：腰部以下大部分被吧台遮挡，移除腿部与脚部微细节。保留面部神态、单马尾、开衫及桌面茶杯。
+⑥自检：落实咖啡休憩构图的室内吧台闲聊氛围，保留山吹沙绫与凌云两人互动，角色特征与衣装一致。
+scene: SFW,2characters,1girl,1boy,sweet home livehouse,bar counter,wooden counter,white porcelain teacup,warm interior lighting,bar stools,depth of field,soft background blur,afternoon light
+scene_uc: nsfw,nude,crowd,stage performance,crying,messy room,monochrome
+char: 0.35,0.5 | 1girl,1::Saya Yamabuki::,brown hair,wavy hair,side ponytail,blue eyes,1::beige knit cardigan::,white collared inner shirt,soft smile,tilted head,hair falling over shoulder,sitting on bar stool,hands resting gently on counter,looking at boy,gentle expression
+char_uc: angry,frowning,closed eyes,hat,jacket
+char: 0.75,0.5 | 1boy,1::Ling Yun (original)::,short black hair,blue eyes,fair skin,slim build,1::black casual jacket::,inner white collared shirt,standing behind counter,holding a teacup,relaxed posture,friendly smile,facing the girl
+char_uc: nsfw,nude,angry,hat,glasses
+
+---
+
+slotid: 2
+生成点: 在安和家大小姐的经济学模型里，演出分成的最终结算货币并不是日元，而是吉野家菜单上的蛋白质附加项。
+analysis: ①三个备选中，男女站立2为暴力NSFW构图，与轻松幽默的排练算账正文完全冲突；喝咖啡为单人近景，缺乏舞台架子鼓互动；背景居酒屋条目虽然只有环境，但其「餐桌餐饮」的轻松聚谈氛围与安和昴大谈特盛牛肉饭与温泉蛋的幽默完全相通。由于另外两条动作完全互斥，在此以居酒屋式轻松餐桌感融合舞台排练现场进行构图，落实安和昴在架子鼓后兴奋转动鼓槌算账的完整画面。
+②形象锚点（L0）：安和昴＝纯黑齐厚刘海长直发，紫罗兰色瞳孔，呆毛，白色细丝带，深色学院风外套；海老塚智＝灰调深棕短卷波波头，酒红色蝴蝶结发箍，酒红色瞳孔，深红格纹短外套。场景锚点（L1）：木质舞台架子鼓席与合成器区域。
+③分层构图：
+Foreground: 舞台边缘与部分鼓件、镲片金属光泽。
+Middle ground: 安和昴坐在架子鼓后，手里转动胡桃木鼓槌，兴高采烈探身大谈温泉蛋；海老塚智站在右侧合成器后抱臂皱眉，神色冷峻挑剔。
+Background: 木质舞台背景板与演出射灯，柔和的环境光芒。
+④镜头：横屏宽幅中景（cowboy shot），微俯视角，聚焦于鼓手席与键盘席的双人互动。
+⑤可见性清理：鼓凳遮挡下身腿部，排除脚部细节；突出安和昴生动的眼眸与手部转鼓槌动作，智的冷眼抱臂清晰可见。
+⑥自检：落实安和昴与海老塚智性格反差与斗嘴氛围，服装外貌均严格对应各自设定。
+scene: SFW,2girls,livehouse stage,drum set,pearl drum kit,cymbals,synthesizer,keyboard stand,stage lights,indoor rehearsal,depth of field,wooden stage floor
+scene_uc: nsfw,nude,crying,bed,food,restaurant,monochrome,violent
+char: 0.35,0.5 | 1girl,1::Subaru Anwa (Girls Band Cry)::,long straight black hair,blunt bangs,ahoge,white ribbon in hair,violet eyes,excited expression,cheerful grin,open mouth,1::dark academy jacket::,holding drumsticks,spinning drumstick in hand,leaning forward over snare drum,seated at drum set
+char_uc: sad,frowning,crying,nude
+char: 0.75,0.5 | 1girl,1::Tomo Ebizuka (Girls Band Cry)::,short curly hair,bob cut,dark brown hair,1::wine red hairband::,red bow hairband on right side,1::wine red eyes::,downturned gaze,frowning,annoyed expression,pouting,1::dark red checkered short jacket::,arms crossed over chest,standing next to synthesizer
+char_uc: smile,laughing,happy,nude,long hair
+
+---
+
+slotid: 3
+生成点: 河原木桃香看着干劲十足的主唱，满意地勾了勾唇角，重新将那把电吉他背带跨过左肩，右脚踩在了失真效果器的金属开关上。
+analysis: ①三个备选构图中，公开露穴与裸内衣贝斯均为暴露NSFW构图，本场景为排练正戏，与全裸露穴完全不合；拍摄（媒介）为录像UI边框。因此候选构图在主体与情境上实质不匹配，需依据正文「桃香挎上吉他背带、右脚轻踩效果器、满意勾唇」以及「仁菜在麦克风前抱紧红色吉他满怀斗志」自主构图，保留「站立吉他演奏与准备」的真实舞台乐手动态。
+②形象锚点（L0）：河原木桃香＝浅亚麻灰长发，侧分刘海，浅灰蓝瞳，黑色细颈圈，军绿色工装外套；井芹仁菜＝深棕红低双马尾，透亮冰蓝瞳，深色长袖外套，红色电吉他。
+③分层构图：
+Foreground: 舞台地面的电吉他单块失真效果器与音频线，桃香军靴的一角踩在金属脚钉旁。
+Middle ground: 河原木桃香身穿军绿外套，左肩斜挎电吉他背带，单手握住琴颈，侧脸勾勒出欣慰爽朗的笑意；井芹仁菜立于麦克风架前，双手紧抱红色电吉他，眼神坚定燃烧着斗志。
+Background: 舞台音箱、调音台与远处吧台柔和暖光。
+④镜头：横屏全景至中景（cowboy shot），前侧3/4机位，低角度微仰视（low-angle），展现摇滚少女蓄势待发的张力。
+⑤可见性清理：正常着装排练，排除NSFW裸露词；确保乐器佩戴符合剧情逻辑。
+⑥自检：成功展现桃香的从容老练与仁菜的不服输韧劲，吉他背带与舞台设备的交互准确自然。
+scene: SFW,2girls,livehouse stage,guitar amplifiers,distortion pedal on floor,microphone stand,audio cables,warm stage lighting,cool rim light,depth of field,rock rehearsal atmosphere
+scene_uc: nsfw,nude,beach,straw hat,video ui,camera interface,crying,distressed
+char: 0.35,0.5 | 1girl,1::Momoka Kawaragi (Girls Band Cry)::,light ash-grey long hair,side-swept bangs,light grey-blue eyes,black choker,smirk,confident smile,cool expression,1::military green work jacket::,inner black shirt,electric guitar slung over left shoulder,one hand holding guitar neck,standing with foot near pedal switch,guitar strap across chest
+char_uc: angry,crying,sweet smile,hat,nude
+char: 0.75,0.5 | 1girl,1::Nina Iseri (Girls Band Cry)::,dark brown-red hair,twin low ponytails,wispy bangs,bright icy blue eyes,determined expression,clenched teeth,serious gaze,1::dark long-sleeved jack

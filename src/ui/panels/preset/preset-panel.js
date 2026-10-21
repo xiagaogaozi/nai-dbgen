@@ -3,8 +3,8 @@
  * 四种预设按子标签分开展示；cover:false（无图类型）。
  */
 
-import { createButton, createField, createSegmentedTabs, createSelect, createCheckbox } from '../../common/controls.js';
-import { createPreset, importFromSillyTavernPreset } from '../../../domain/model/preset.js';
+import { createButton, createField, createNumberField, createSegmentedTabs, createSelect, createCheckbox } from '../../common/controls.js';
+import { createPreset, importFromSillyTavernPreset, presetRetryCount } from '../../../domain/model/preset.js';
 import { listRegisteredVariables } from '../../../domain/template/variable-map.js';
 import { mountLibraryView } from '../library-view.js';
 import { applyFormFields, mergePresetPrompt } from '../_lib/library-logic.js';
@@ -144,6 +144,11 @@ export function mountPresetPanel(root, deps) {
      */
     async function openEditor(item) {
         const nameField = createField({ label: '名称', value: item?.name ?? '' });
+        const retryField = createNumberField({
+            label: '结果纠错重试次数', value: presetRetryCount(item), min: 0, step: 1,
+        });
+        const retryHint = el('p', 'nd-preset-vars-hint');
+        setText(retryHint, '缺少必填字段或结果格式错误时，反馈具体问题后重试。3 表示首轮失败后再试 3 次，0 为不重试。');
         const defaultKind = item?.kind && KIND_LABEL[item.kind] ? item.kind : currentKind();
         const kindSelect = createSelect({
             label: '类型',
@@ -377,7 +382,7 @@ export function mountPresetPanel(root, deps) {
             `可用变量：${listRegisteredVariables().map((n) => `{{${n}}}`).join(' ')}`,
         );
         const form = el('div', 'nd-form');
-        form.append(nameField.el, kindSelect.el, varsHint, promptsHost, stPaste.el);
+        form.append(nameField.el, kindSelect.el, retryField.el, retryHint, varsHint, promptsHost, stPaste.el);
         const modal = await openFormModal(deps, item ? '编辑预设' : '新建预设', form);
 
         const actions = el('div', 'nd-form__actions');
@@ -404,6 +409,7 @@ export function mountPresetPanel(root, deps) {
                         }
                         nameField.setValue(imported.value.name);
                         kindSelect.setValue(imported.value.kind);
+                        retryField.setValue(imported.value.retryCount);
                         prompts = imported.value.prompts.map((p) => ({ ...p }));
                         promptOrder = Array.isArray(imported.value.prompt_order)
                             ? imported.value.prompt_order.map((o) => ({ ...o }))
@@ -450,6 +456,11 @@ export function mountPresetPanel(root, deps) {
             }
             const selected = /** @type {PresetKindTab} */ (kindSelect.getValue());
             const nextKind = KIND_LABEL[selected] ? selected : 'imagegen';
+            const retryCount = Number(retryField.getValue());
+            if (!Number.isSafeInteger(retryCount) || retryCount < 0) {
+                modal.setError('结果纠错重试次数必须是大于或等于 0 的整数');
+                return null;
+            }
             const promptList = readPrompts();
             const orderList = mergePromptOrder(promptList);
             promptOrder = orderList;
@@ -458,12 +469,13 @@ export function mountPresetPanel(root, deps) {
                 ? applyFormFields(item, {
                     name,
                     kind: nextKind,
+                    retryCount,
                     prompts: promptList,
                     prompt_order: orderList,
                     updatedAt: ids.now(),
                 })
                 : createPreset(
-                    { name, kind: nextKind, prompts: promptList, prompt_order: orderList },
+                    { name, kind: nextKind, retryCount, prompts: promptList, prompt_order: orderList },
                     { id: ids.id('pr'), now: ids.now() },
                 );
             return awaitRepo(host, repo.put(entity), '保存失败');

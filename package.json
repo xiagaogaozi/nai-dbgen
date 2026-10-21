@@ -2,7 +2,7 @@
     "name": "nai-dbgen",
     "private": true,
     "type": "module",
-    "version": "0.2.41",
+    "version": "0.2.42",
     "description": "SillyTavern UI extension — database-driven image generation",
     "scripts": {
         "test": "node --test 'tests/**/*.test.js'",
