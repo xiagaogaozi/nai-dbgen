@@ -93,15 +93,18 @@ export function createViewpointBlocksBuilder(deps) {
             const contextWindow = window.messages;
             const contextText = window.text;
 
-            // ── 2. 世界书（与 generate-slots 同：resolve 失败降为 Ok(degraded)）──
-            const wiR = await deps.worldInfoResolver.resolve({
-                contextWindow,
-                messageId,
-            });
-            if (!wiR.ok) {
-                return attachTraceId(wiR, traceId);
+            // ── 2. 世界书：开关关闭时不扫描、不传入（接口与直接楼内生图共用）──
+            let worldInfoText = '';
+            if (settings.includeWorldInfo === true) {
+                const wiR = await deps.worldInfoResolver.resolve({
+                    contextWindow,
+                    messageId,
+                });
+                if (!wiR.ok) {
+                    return attachTraceId(wiR, traceId);
+                }
+                worldInfoText = wiR.value.text;
             }
-            const worldInfoText = wiR.value.text;
 
             const aborted1 = abortErrIfNeeded(signal, traceId);
             if (aborted1) {

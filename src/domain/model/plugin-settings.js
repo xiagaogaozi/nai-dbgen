@@ -62,6 +62,9 @@ export const PLUGIN_SETTINGS_SCHEMA_VERSION = 1;
  *   自动出图：slot 写好后对尚未生图编号走出图（需求 4.12）。默认 false。已生图的不自动再出。
  * @property {boolean} naiParallel 同时请求多张。默认关，一张完成再请求下一张。
  * @property {boolean} hideFloatingBall 隐藏悬浮球。默认关。快捷回复栏仍可进配置和本楼生图。
+ * @property {boolean} includeWorldInfo
+ *   楼内生图是否把世界书写入 {{世界书}}。默认关。关闭时不扫描世界书：
+ *   接口写提示词和直接楼内生图都不传入。
  * @property {MatchDefaults} matchDefaults
  *   角色关键字匹配的全局默认。
  * @property {import('./nai-params.js').NaiParams} naiParams
@@ -90,6 +93,7 @@ export function defaultPluginSettings() {
         autoRenderSlots: false,
         naiParallel: false,
         hideFloatingBall: false,
+        includeWorldInfo: false,
         matchDefaults: {
             caseSensitive: false,
             matchWholeWords: false,
@@ -161,6 +165,7 @@ export function normalizePluginSettings(obj) {
         autoRenderSlots: obj.autoRenderSlots === true,
         naiParallel: obj.naiParallel === true,
         hideFloatingBall: obj.hideFloatingBall === true,
+        includeWorldInfo: obj.includeWorldInfo === true,
         matchDefaults: normalizeMatchDefaults(obj.matchDefaults),
         naiParams: naiResult.ok ? naiResult.value : defaultNaiParams(),
     };

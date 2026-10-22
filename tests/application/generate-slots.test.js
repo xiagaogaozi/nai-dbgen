@@ -80,7 +80,7 @@ describe('generateSlots seven-step pipeline', () => {
     });
 
     it('derives all four blocks from the same contextWindow', async () => {
-        const p = buildPipeline();
+        const p = buildPipeline({ settingsPatch: { includeWorldInfo: true } });
         const r = await p.generateSlots.execute(2);
         assert.equal(isOk(r), true);
 
@@ -121,6 +121,7 @@ describe('generateSlots seven-step pipeline', () => {
     it('degrades when worldinfo fails but continues other blocks', async () => {
         const p = buildPipeline({
             hostOpts: { worldInfoFail: true },
+            settingsPatch: { includeWorldInfo: true },
         });
 
         const r = await p.generateSlots.execute(2);
@@ -131,6 +132,37 @@ describe('generateSlots seven-step pipeline', () => {
         assert.ok(promptMsg.includes('Alice walked into the garden.'));
         assert.ok(promptMsg.includes('flower garden') || promptMsg.includes('black hair'));
         assert.equal(promptMsg.includes('WORLD_INFO_TEXT'), false);
+    });
+
+    it('omits world info for floor generation and the floor API unless the switch is on', async () => {
+        const off = buildPipeline();
+        const direct = await off.generateSlots.execute(2);
+        assert.equal(isOk(direct), true, direct.ok ? '' : direct.error?.message);
+        assert.equal(off.host.resolveWorldInfoCalls.length, 0);
+        const directPrompt = off.llmCalls[1].messages.map((m) => m.content).join('\n');
+        assert.equal(directPrompt.includes('WORLD_INFO_TEXT'), false);
+        assert.ok(directPrompt.includes('Alice walked into the garden.'));
+
+        const api = await off.workbench.writePrompt({
+            naturalLanguage: '只要花园',
+            mode: 'floor',
+        });
+        assert.equal(isOk(api), true, api.ok ? '' : api.error?.message);
+        const apiPrompt = off.llmCalls.at(-1).messages.map((m) => m.content).join('\n');
+        assert.equal(apiPrompt.includes('WORLD_INFO_TEXT'), false);
+        assert.ok(apiPrompt.includes('U=只要花园'));
+        assert.equal(off.host.resolveWorldInfoCalls.length, 0);
+
+        const on = buildPipeline({ settingsPatch: { includeWorldInfo: true } });
+        const apiOn = await on.workbench.writePrompt({
+            naturalLanguage: '只要花园',
+            mode: 'floor',
+            skipRecall: true,
+        });
+        assert.equal(isOk(apiOn), true, apiOn.ok ? '' : apiOn.error?.message);
+        const onPrompt = on.llmCalls[0].messages.map((m) => m.content).join('\n');
+        assert.ok(onPrompt.includes('WORLD_INFO_TEXT'));
+        assert.equal(on.host.resolveWorldInfoCalls.length, 1);
     });
 });
 

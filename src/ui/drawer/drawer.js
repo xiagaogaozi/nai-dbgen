@@ -125,6 +125,12 @@ export function mountDrawer(root, deps) {
         checked: current.naiParallel === true,
         onChange: (v) => patch({ naiParallel: v }),
     });
+    const includeWorldInfo = createToggle({
+        label: '传入世界书',
+        hint: '打开后，接口写提示词和直接楼内生图都会带上世界书',
+        checked: current.includeWorldInfo === true,
+        onChange: (v) => patch({ includeWorldInfo: v }),
+    });
 
     const pickers = el('div', 'nd-drawer__pickers');
     const repos = deps.repos || {};
@@ -297,7 +303,7 @@ export function mountDrawer(root, deps) {
 
     const group = createFieldGroup({
         title: '高频开关',
-        children: [contextN.el, floorImageScale.el, autoWrite.el, autoRender.el, naiParallel.el],
+        children: [contextN.el, floorImageScale.el, autoWrite.el, autoRender.el, naiParallel.el, includeWorldInfo.el],
     });
 
     shell.append(title, group.el, pickers, openBtn);
@@ -383,6 +389,7 @@ export function mountDrawer(root, deps) {
             autoWrite.destroy();
             autoRender.destroy();
             naiParallel.destroy();
+            includeWorldInfo.destroy();
             group.destroy();
             shell.remove();
         },

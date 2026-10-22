@@ -83,7 +83,7 @@ describe('viewpoint-blocks', () => {
             ],
             worldInfoText: 'WI_OK',
         });
-        const settings = overrides.settings ?? baseSettings();
+        const settings = overrides.settings ?? baseSettings({ includeWorldInfo: true });
         const characterRepo = overrides.characterRepo ?? {
             listGroups: async () => Ok([{
                 id: 'g1', name: '主', active: true, order: 0,
@@ -153,6 +153,29 @@ describe('viewpoint-blocks', () => {
         assert.equal(r.value.featureEntries.length, 1);
         assert.equal(r.value.constantText, '');
         assert.equal(r.value.constantEntries.length, 0);
+    });
+
+    it('skips world info unless includeWorldInfo is on', async () => {
+        const host = createFakeHost({
+            aiMessages: [{
+                messageId: 2,
+                name: 'Bot',
+                text: 'Alice has 金发 in the garden.',
+                isUser: false,
+                isSystem: false,
+            }],
+            worldInfoText: 'WI_SHOULD_NOT_PASS',
+        });
+        const builder = createViewpointBlocksBuilder(buildDeps({
+            host,
+            settings: baseSettings({ includeWorldInfo: false }),
+        }));
+        const r = await builder.build();
+        assert.equal(isOk(r), true, r.ok ? '' : r.error?.message);
+        assert.equal(r.value.worldInfoText, '');
+        assert.equal(host.resolveWorldInfoCalls.length, 0);
+        assert.match(r.value.contextText, /Alice has/);
+        assert.match(r.value.characterText, /Alice/);
     });
 
     it('active constant libs inject all entries in list / save order; inactive omitted', async () => {
