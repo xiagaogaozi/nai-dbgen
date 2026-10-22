@@ -131,6 +131,12 @@ export function mountDrawer(root, deps) {
         checked: current.includeWorldInfo === true,
         onChange: (v) => patch({ includeWorldInfo: v }),
     });
+    const omitRecentSlots = createToggle({
+        label: '不发近期生图记录',
+        hint: '打开后，接口写提示词和直接楼内生图都不带近期生图记录',
+        checked: current.omitRecentSlots === true,
+        onChange: (v) => patch({ omitRecentSlots: v }),
+    });
 
     const pickers = el('div', 'nd-drawer__pickers');
     const repos = deps.repos || {};
@@ -303,7 +309,7 @@ export function mountDrawer(root, deps) {
 
     const group = createFieldGroup({
         title: '高频开关',
-        children: [contextN.el, floorImageScale.el, autoWrite.el, autoRender.el, naiParallel.el, includeWorldInfo.el],
+        children: [contextN.el, floorImageScale.el, autoWrite.el, autoRender.el, naiParallel.el, includeWorldInfo.el, omitRecentSlots.el],
     });
 
     shell.append(title, group.el, pickers, openBtn);
@@ -390,6 +396,7 @@ export function mountDrawer(root, deps) {
             autoRender.destroy();
             naiParallel.destroy();
             includeWorldInfo.destroy();
+            omitRecentSlots.destroy();
             group.destroy();
             shell.remove();
         },

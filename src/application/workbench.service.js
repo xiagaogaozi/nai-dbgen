@@ -103,7 +103,8 @@ async function writeFloorPrompt(deps, input, traceId) {
     }
     const positionIds = new Set(positions.map((pos) => Number(pos && pos.slotId)));
     let recentSlotsText = '';
-    if (deps.slotRepo && typeof deps.slotRepo.listRetained === 'function') {
+    const omitRecentSlots = deps.loadSettings()?.omitRecentSlots === true;
+    if (!omitRecentSlots && deps.slotRepo && typeof deps.slotRepo.listRetained === 'function') {
         const retainedR = await deps.slotRepo.listRetained();
         if (!retainedR.ok) {
             return attachTraceId(retainedR, traceId);

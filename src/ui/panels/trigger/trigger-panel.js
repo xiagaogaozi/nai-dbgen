@@ -71,6 +71,11 @@ export function mountTriggerPanel(root, deps) {
         hint: '打开后，接口写提示词和直接楼内生图都会带上世界书',
         checked: current.includeWorldInfo === true,
     });
+    const omitRecentSlots = createToggle({
+        label: '不发近期生图记录',
+        hint: '打开后，接口写提示词和直接楼内生图都不带近期生图记录',
+        checked: current.omitRecentSlots === true,
+    });
     const caseSensitive = createCheckbox({
         label: '关键字默认区分大小写',
         checked: current.matchDefaults?.caseSensitive === true,
@@ -84,7 +89,7 @@ export function mountTriggerPanel(root, deps) {
 
     const basic = createFieldGroup({
         title: '运行开关',
-        children: [contextN.el, floorImageScale.el, autoWrite.el, autoRender.el, naiParallel.el, includeWorldInfo.el, caseSensitive.el, wholeWords.el],
+        children: [contextN.el, floorImageScale.el, autoWrite.el, autoRender.el, naiParallel.el, includeWorldInfo.el, omitRecentSlots.el, caseSensitive.el, wholeWords.el],
     });
     const naiGroup = createDetails({
         summary: '出图参数',
@@ -105,6 +110,7 @@ export function mountTriggerPanel(root, deps) {
                 autoRenderSlots: autoRender.getValue(),
                 naiParallel: naiParallel.getValue(),
                 includeWorldInfo: includeWorldInfo.getValue(),
+                omitRecentSlots: omitRecentSlots.getValue(),
                 matchDefaults: {
                     caseSensitive: caseSensitive.getValue(),
                     matchWholeWords: wholeWords.getValue(),
@@ -134,6 +140,7 @@ export function mountTriggerPanel(root, deps) {
             autoRender.destroy();
             naiParallel.destroy();
             includeWorldInfo.destroy();
+            omitRecentSlots.destroy();
             caseSensitive.destroy();
             wholeWords.destroy();
             paramsForm.destroy();

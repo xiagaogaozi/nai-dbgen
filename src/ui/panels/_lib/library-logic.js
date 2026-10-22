@@ -29,6 +29,7 @@ export const PLUGIN_SETTINGS_KEYS = Object.freeze([
     'naiParallel',
     'hideFloatingBall',
     'includeWorldInfo',
+    'omitRecentSlots',
     'matchDefaults',
     'naiParams',
 ]);

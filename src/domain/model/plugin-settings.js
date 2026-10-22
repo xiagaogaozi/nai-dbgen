@@ -65,6 +65,9 @@ export const PLUGIN_SETTINGS_SCHEMA_VERSION = 1;
  * @property {boolean} includeWorldInfo
  *   楼内生图是否把世界书写入 {{世界书}}。默认关。关闭时不扫描世界书：
  *   接口写提示词和直接楼内生图都不传入。
+ * @property {boolean} omitRecentSlots
+ *   打开后不把近期生图记录写入 {{近期生图记录}}。默认关。
+ *   打开时接口写提示词和直接楼内生图都不读取、不发送这段记录。
  * @property {MatchDefaults} matchDefaults
  *   角色关键字匹配的全局默认。
  * @property {import('./nai-params.js').NaiParams} naiParams
@@ -94,6 +97,7 @@ export function defaultPluginSettings() {
         naiParallel: false,
         hideFloatingBall: false,
         includeWorldInfo: false,
+        omitRecentSlots: false,
         matchDefaults: {
             caseSensitive: false,
             matchWholeWords: false,
@@ -166,6 +170,7 @@ export function normalizePluginSettings(obj) {
         naiParallel: obj.naiParallel === true,
         hideFloatingBall: obj.hideFloatingBall === true,
         includeWorldInfo: obj.includeWorldInfo === true,
+        omitRecentSlots: obj.omitRecentSlots === true,
         matchDefaults: normalizeMatchDefaults(obj.matchDefaults),
         naiParams: naiResult.ok ? naiResult.value : defaultNaiParams(),
     };

@@ -196,16 +196,18 @@ export function createGenerateSlotsUseCase(deps) {
 
             const compositionText = formatCompositionBlock(positions);
 
-            // 近期生图记录：保留范围内已有 slot，排除本轮召回将写的 slotid
+            // 近期生图记录：开关打开则不读、不传入（与接口楼内写词同一开关）
             const excludeIds = new Set(positions.map((p) => Number(p.slotId)));
             let recentSlotsText = '';
-            const retainedR = await deps.slotRepo.listRetained();
-            if (!retainedR.ok) {
-                return attachTraceId(retainedR, traceId);
+            if (settings.omitRecentSlots !== true) {
+                const retainedR = await deps.slotRepo.listRetained();
+                if (!retainedR.ok) {
+                    return attachTraceId(retainedR, traceId);
+                }
+                recentSlotsText = formatRecentSlotsBlock(
+                    retainedR.value.filter((r) => r && !excludeIds.has(Number(r.slotId))),
+                );
             }
-            recentSlotsText = formatRecentSlotsBlock(
-                retainedR.value.filter((r) => r && !excludeIds.has(Number(r.slotId))),
-            );
 
             let blocks = createBlockSet();
             blocks = setBlock(blocks, VARIABLE_NAMES.WORLDINFO, worldInfoText);

@@ -303,6 +303,49 @@ describe('近期生图记录 in generate-slots', () => {
         assert.equal(stored.value.size, '1216x832');
         assert.equal(stored.value.analysis, '本轮横图');
     });
+
+    it('omitRecentSlots drops recent records for floor generation and the floor API', async () => {
+        const prevCap = makeCaption('prev scene');
+        async function seed(p) {
+            await p.slotRepo.put(1, [
+                createSlotRecord({
+                    messageId: 1,
+                    slotId: 3,
+                    caption: prevCap,
+                    analysis: '上一轮竖图',
+                }, { now: NOW }),
+            ]);
+        }
+
+        const off = buildPipeline();
+        await seed(off);
+        const directOff = await off.generateSlots.execute(2);
+        assert.equal(directOff.ok, true, directOff.ok ? '' : directOff.error?.message);
+        const offPrompt = off.llmCalls[1].messages.map((m) => m.content).join('\n');
+        assert.match(offPrompt, /Recent=slotid: 3/);
+        assert.match(offPrompt, /上一轮竖图/);
+
+        const on = buildPipeline({ settingsPatch: { omitRecentSlots: true } });
+        await seed(on);
+        on.slotRepo.failListRetained = true;
+        const directOn = await on.generateSlots.execute(2);
+        assert.equal(directOn.ok, true, directOn.ok ? '' : directOn.error?.message);
+        const onPrompt = on.llmCalls[1].messages.map((m) => m.content).join('\n');
+        assert.equal(onPrompt.includes('上一轮竖图'), false);
+        assert.equal(onPrompt.includes('slotid: 3'), false);
+        assert.match(onPrompt, /Recent=\s*U=/);
+
+        on.slotRepo.failListRetained = true;
+        const api = await on.workbench.writePrompt({
+            naturalLanguage: '只要花园',
+            mode: 'floor',
+            skipRecall: true,
+        });
+        assert.equal(api.ok, true, api.ok ? '' : api.error?.message);
+        const apiPrompt = on.llmCalls.at(-1).messages.map((m) => m.content).join('\n');
+        assert.equal(apiPrompt.includes('上一轮竖图'), false);
+        assert.match(apiPrompt, /Recent=\s*U=只要花园/);
+    });
 });
 
 describe('workbench writePrompt fills width/height from 尺寸', () => {
