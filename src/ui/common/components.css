@@ -102,6 +102,8 @@
     border: 1px solid var(--nd-line) !important;
     border-radius: var(--nd-radius-sm) !important;
     padding: 0 12px !important;
+    /* 0.2.49：压掉宿主 Word 主题 inset 顶部细线 */
+    box-shadow: none !important;
 }
 
 /* —— 基础控件继承加固（R-11） —— */
@@ -130,7 +132,8 @@
 :is(#nai-dbgen-root, .nd-root) .nd-picker-option:focus-visible,
 :is(#nai-dbgen-root, .nd-root) .nd-details > summary:focus-visible {
     outline: 2px solid var(--nd-accent-deep);
-    outline-offset: 2px;
+    /* 0.2.48：内缩，避免被 overflow 容器或相邻层裁掉 */
+    outline-offset: -2px;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-button {
@@ -247,7 +250,7 @@
     border: 1px solid var(--nd-line) !important;
     background: transparent !important;
     color: var(--nd-muted) !important;
-    font-size: var(--nd-fs-xs) !important;
+    font-size: var(--nd-fs-sm) !important;
     line-height: 1.2 !important;
 }
 
@@ -295,7 +298,7 @@
 :is(#nai-dbgen-root, .nd-root) .nd-model-tag-checks__hint {
     margin: 0;
     color: var(--nd-muted);
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
 }
 
 /* —— 表单字段 —— */
@@ -304,7 +307,7 @@
     gap: 0.45em;
     margin: 0 0 0.9em;
     color: var(--nd-soft);
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-md);
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-field__label {
@@ -312,6 +315,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.6em;
+    font-size: var(--nd-fs-md);
     font-weight: 700;
     color: var(--nd-soft);
 }
@@ -322,10 +326,17 @@
     margin: 0 0 1em;
 }
 
+/* 0.2.44：快速配置显隐用 hidden；display:grid/flex 会盖过 [hidden] */
+:is(#nai-dbgen-root, .nd-root) .nd-field[hidden],
+:is(#nai-dbgen-root, .nd-root) .nd-field-group[hidden],
+:is(#nai-dbgen-root, .nd-root) .nd-toggle-row[hidden] {
+    display: none;
+}
+
 :is(#nai-dbgen-root, .nd-root) .nd-field-group__title {
     margin: 0;
     color: var(--nd-soft);
-    font-size: var(--nd-fs-sm);
+    font-size: var(--nd-fs-lg);
     font-weight: 800;
 }
 
@@ -340,12 +351,15 @@
     background: var(--nd-input-bg) !important;
     border: 1px solid var(--nd-line) !important;
     border-radius: var(--nd-radius-sm) !important;
+    box-shadow: none !important;
     appearance: none !important;
     -webkit-appearance: none !important;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-input,
 :is(#nai-dbgen-root, .nd-root) .nd-select {
+    /* 0.2.47：压掉宿主 select 的 margin-bottom: 5px，和旁边按钮同一条线 */
+    margin: 0 !important;
     height: var(--nd-h-primary) !important;
     min-height: var(--nd-h-primary) !important;
     padding: 0 12px !important;
@@ -371,8 +385,39 @@
 :is(#nai-dbgen-root, .nd-root) .nd-select:focus,
 :is(#nai-dbgen-root, .nd-root) .nd-textarea:focus {
     border-color: var(--nd-accent-soft) !important;
-    box-shadow: 0 0 0 3px var(--nd-accent-ring);
+    /* 0.2.49：!important 才压得住宿主蓝色焦点环 */
+    box-shadow: inset 0 0 0 2px var(--nd-accent-ring) !important;
     outline: none;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-search-field:focus-within,
+:is(#nai-dbgen-root, .nd-root) .nd-picker__control:focus-within {
+    box-shadow: inset 0 0 0 2px var(--nd-accent-ring);
+}
+
+/* 0.2.48：UI token 下拉框（替代原生 select） */
+:is(#nai-dbgen-root, .nd-root) .nd-token-select {
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+    padding: 0 12px !important;
+    font-size: var(--nd-fs-md) !important;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-token-select__text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-token-select__icon {
+    flex: 0 0 auto;
+    font-size: var(--nd-fs-sm);
+    color: var(--nd-muted);
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-checkbox-row {
@@ -398,10 +443,11 @@
     flex-shrink: 0;
     display: inline-grid;
     place-content: center;
-    border: 1px solid var(--nd-line-strong) !important;
+    /* 0.2.49：未勾选也要看得见；宿主 checked 底色被这里压住，所以另写 :checked */
+    border: 1px solid var(--nd-accent-soft) !important;
     border-radius: var(--nd-radius-xs) !important;
-    background: var(--nd-input-bg) !important;
-    box-shadow: inset 0 0 2px var(--nd-shadow-c);
+    background: var(--nd-surface-2) !important;
+    box-shadow: none !important;
     accent-color: var(--nd-accent);
     cursor: pointer;
     color: inherit !important;
@@ -417,9 +463,14 @@
     width: 0.65em;
     height: 0.65em;
     transform: scale(0);
-    box-shadow: inset 1em 1em var(--nd-accent);
+    box-shadow: inset 1em 1em var(--nd-on-accent) !important;
     clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
     transition: transform 0.12s ease-in-out;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-checkbox-row input:checked {
+    background: var(--nd-accent) !important;
+    border-color: var(--nd-accent) !important;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-checkbox-row input:checked::before {
@@ -451,13 +502,15 @@
 
 :is(#nai-dbgen-root, .nd-root) .nd-toggle-row__text strong {
     color: var(--nd-soft);
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-md);
     font-weight: 700;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-toggle-row__text small {
     color: var(--nd-muted);
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
+    /* 压掉酒馆全局 small 的 opacity 0.7 */
+    opacity: 1;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-toggle-row input {
@@ -468,8 +521,8 @@
     appearance: none !important;
     -webkit-appearance: none !important;
     box-sizing: border-box !important;
-    width: 35px !important;
-    height: 19px !important;
+    width: var(--nd-toggle-w) !important;
+    height: var(--nd-toggle-h) !important;
     min-height: 0 !important;
     margin: 0;
     padding: 0 !important;
@@ -484,16 +537,17 @@
 
 :is(#nai-dbgen-root, .nd-root) .nd-toggle-row i {
     position: relative;
-    flex: 0 0 35px;
+    flex: 0 0 var(--nd-toggle-w);
     box-sizing: border-box !important;
-    width: 35px !important;
-    height: 19px !important;
+    width: var(--nd-toggle-w) !important;
+    height: var(--nd-toggle-h) !important;
     margin: 0 !important;
     padding: 0 !important;
     transform: none;
     border-radius: var(--nd-radius-pill);
     background: var(--nd-toggle-track);
-    border: 1px solid var(--nd-line);
+    /* 0.2.47：无边框，圆钮位置只由 --nd-toggle-* 决定 */
+    border: 0;
     transition: 0.2s;
 }
 
@@ -507,9 +561,9 @@
     display: block;
     position: absolute !important;
     box-sizing: border-box !important;
-    inset: 2px auto auto 2px !important;
-    width: 13px !important;
-    height: 13px !important;
+    inset: var(--nd-toggle-pad) auto auto var(--nd-toggle-pad) !important;
+    width: var(--nd-toggle-knob-size) !important;
+    height: var(--nd-toggle-knob-size) !important;
     margin: 0 !important;
     border: 0 !important;
     transform: none;
@@ -522,7 +576,7 @@
 
 :is(#nai-dbgen-root, .nd-root) .nd-toggle-row input:focus-visible + i {
     outline: 2px solid var(--nd-accent-deep);
-    outline-offset: 3px;
+    outline-offset: 1px;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-toggle-row input:checked + i {
@@ -531,7 +585,7 @@
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-toggle-row input:checked + i::after {
-    inset: 2px auto auto 18px !important;
+    inset: var(--nd-toggle-pad) auto auto calc(var(--nd-toggle-w) - var(--nd-toggle-knob-size) - var(--nd-toggle-pad)) !important;
     background: var(--nd-on-accent);
 }
 
@@ -551,7 +605,7 @@
     display: flex;
     justify-content: space-between;
     color: var(--nd-muted);
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-range-label output {
@@ -584,8 +638,8 @@
 :is(#nai-dbgen-root, .nd-root) .nd-range::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 15px;
-    height: 15px;
+    width: var(--nd-range-thumb);
+    height: var(--nd-range-thumb);
     border-radius: 50%;
     border: 1px solid var(--nd-line-strong);
     background: var(--nd-accent);
@@ -594,8 +648,8 @@
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-range::-moz-range-thumb {
-    width: 15px;
-    height: 15px;
+    width: var(--nd-range-thumb);
+    height: var(--nd-range-thumb);
     border-radius: 50%;
     border: 1px solid var(--nd-line-strong);
     background: var(--nd-accent);
@@ -628,13 +682,34 @@
 :is(#nai-dbgen-root, .nd-root) .nd-details > summary {
     cursor: pointer;
     color: var(--nd-soft);
-    font-size: var(--nd-fs-sm);
+    font-size: var(--nd-fs-lg);
     font-weight: 800;
     list-style: none;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-details > summary::-webkit-details-marker {
     display: none;
+}
+
+/* 0.2.48：折叠块右侧统一用 chevron-down / chevron-up */
+:is(#nai-dbgen-root, .nd-root) .nd-details > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-details > summary::after {
+    content: "\f078";
+    flex: 0 0 auto;
+    font-family: "Font Awesome 6 Free";
+    font-weight: 900;
+    font-size: var(--nd-fs-sm);
+    color: var(--nd-muted);
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-details[open] > summary::after {
+    content: "\f077";
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-details__body {
@@ -653,7 +728,7 @@
 :is(#nai-dbgen-root, .nd-root) .nd-empty__title {
     margin: 0;
     font-family: var(--nd-serif);
-    font-size: var(--nd-fs-display);
+    font-size: var(--nd-fs-title);
     font-weight: 400;
     color: var(--nd-text);
 }
@@ -716,7 +791,7 @@
     min-height: 15px;
     margin-top: 8px;
     color: var(--nd-danger);
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     line-height: 1.5;
 }
 
@@ -729,7 +804,7 @@
     border-radius: var(--nd-radius-sm);
     background: var(--nd-danger-wash);
     color: var(--nd-danger);
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     line-height: 1.5;
 }
 
@@ -789,7 +864,7 @@
     height: var(--nd-h) !important;
     min-height: var(--nd-h) !important;
     padding: 0 11px;
-    border: 1px solid #edd3df;
+    border: 1px solid var(--nd-search-line);
     border-radius: var(--nd-radius-sm);
     background: var(--nd-input-bg);
 }
@@ -803,6 +878,8 @@
     border: 0 !important;
     border-radius: 0 !important;
     outline: 0;
+    /* 0.2.49：内层 input 不要宿主的顶线和蓝色焦点环 */
+    box-shadow: none !important;
     background: transparent !important;
     color: var(--nd-text) !important;
     font-family: inherit !important;
@@ -812,9 +889,8 @@
 
 :is(#nai-dbgen-root, .nd-root) .nd-style-grid {
     display: grid;
-    /* 库卡固定列宽 150–180px，不随容器 1fr 拉伸；~960px 约 5 列 */
-    grid-template-columns: repeat(auto-fill, minmax(150px, 180px));
-    justify-content: start;
+    /* 0.2.44：库卡最小 150px，按 1fr 铺满整行，右侧不留空 */
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     align-items: stretch;
     gap: 16px;
 }
@@ -833,9 +909,10 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    border: 1px solid rgba(228, 183, 203, 0.8);
+    border: 1px solid var(--nd-card-line);
     border-radius: var(--nd-radius-md);
-    background: #fff;
+    /* 0.2.47：无边框，卡片用 surface-2 与所在容器区分 */
+    background: var(--nd-surface-2);
     box-shadow: none;
     transition: border-color 0.15s ease, background 0.15s ease;
 }
@@ -866,23 +943,25 @@
     /* 选中/当前使用：同一层边框换主题色；不加 outline、不叠粉底、不偏移阴影 */
     outline: none;
     border-color: var(--nd-accent);
-    background: #fff;
+    background: var(--nd-surface-2);
     box-shadow: none;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-style-card__select {
     position: absolute;
     top: 8px;
-    left: 8px;
+    right: 8px;
+    left: auto;
     z-index: 2;
     display: grid;
     place-items: center;
-    width: 28px;
-    height: 28px;
+    width: auto;
+    height: auto;
     margin: 0;
-    border-radius: var(--nd-radius-xs);
-    background: rgba(255, 255, 255, 0.92);
-    box-shadow: 0 0 0 1px rgba(228, 183, 203, 0.9);
+    border-radius: 0;
+    /* 0.2.47：去掉外圈白底容器，只留复选框本身 */
+    background: transparent;
+    box-shadow: none;
     cursor: pointer;
 }
 
@@ -896,12 +975,18 @@
     min-height: 0 !important;
     margin: 0 !important;
     padding: 0 !important;
-    border: 1px solid var(--nd-line-strong) !important;
+    border: 1px solid var(--nd-accent-soft) !important;
     border-radius: var(--nd-radius-xs) !important;
-    background: var(--nd-input-bg) !important;
+    background: var(--nd-surface-2) !important;
+    box-shadow: none !important;
     display: inline-grid;
     place-content: center;
     cursor: pointer;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-style-card__select input[type="checkbox"]:checked {
+    background: var(--nd-accent) !important;
+    border-color: var(--nd-accent) !important;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-style-card__select input[type="checkbox"]::before {
@@ -909,7 +994,7 @@
     width: 0.65em;
     height: 0.65em;
     transform: scale(0);
-    box-shadow: inset 1em 1em var(--nd-accent);
+    box-shadow: inset 1em 1em var(--nd-on-accent) !important;
     clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
 }
 
@@ -928,7 +1013,8 @@
     place-items: center;
     overflow: hidden;
     border: 0 !important;
-    border-bottom: 1px solid #f4e1e9 !important;
+    /* 0.2.49：去掉画师串卡片文字区上方的单边线 */
+    border-bottom: 0 !important;
     /* 顶角与卡片同半径，由卡片裁切封面 */
     border-radius: var(--nd-radius-md) var(--nd-radius-md) 0 0 !important;
     background: transparent !important;
@@ -938,6 +1024,28 @@
     line-height: 1 !important;
     cursor: pointer;
     padding: 0 !important;
+}
+
+/* 0.2.44：封面右下角版本角标（v5 / v4.5） */
+:is(#nai-dbgen-root, .nd-root) .nd-style-card__cover-badge {
+    position: absolute;
+    right: 6px;
+    bottom: 6px;
+    z-index: 1;
+    padding: 2px 7px;
+    border-radius: var(--nd-radius-pill);
+    background: var(--nd-chip-bg);
+    box-shadow: 0 0 0 1px var(--nd-chip-ring);
+    color: var(--nd-accent);
+    font-size: var(--nd-fs-sm);
+    font-weight: 700;
+    line-height: 1.4;
+    pointer-events: none;
+}
+
+/* 0.2.44：点卡片边框/文字区即打开编辑 */
+:is(#nai-dbgen-root, .nd-root) .nd-style-card--clickable {
+    cursor: pointer;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-style-card__cover img {
@@ -957,7 +1065,7 @@
 
 :is(#nai-dbgen-root, .nd-root) .nd-style-card__cover-empty {
     font-family: inherit;
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     font-style: normal;
     font-weight: 500;
     color: var(--nd-muted);
@@ -970,7 +1078,7 @@
 /* D65：斜体衬线 + 22% 透明度淡水印（不是实心亮粉巨字） */
 :is(#nai-dbgen-root, .nd-root) .nd-cover-monogram {
     font: italic var(--nd-cover-mono-size) Georgia, serif;
-    color: rgba(186, 76, 125, 0.22);
+    color: var(--nd-mark);
     line-height: 1;
     pointer-events: none;
     user-select: none;
@@ -1007,7 +1115,7 @@
     width: 100%;
     margin: 0;
     font-family: inherit;
-    font-size: var(--nd-fs-base);
+    font-size: var(--nd-fs-md);
     font-weight: 500;
     color: var(--nd-text);
     line-height: 1.35;
@@ -1026,7 +1134,7 @@
 :is(#nai-dbgen-root, .nd-root) .nd-style-card__title-badge {
     flex: 0 0 auto;
     font-weight: 400;
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     color: var(--nd-muted);
     white-space: nowrap;
 }
@@ -1035,7 +1143,7 @@
     width: 100%;
     margin: 0;
     font-family: inherit;
-    font-size: var(--nd-fs-base);
+    font-size: var(--nd-fs-md);
     font-weight: 500;
     color: var(--nd-text);
     white-space: nowrap;
@@ -1048,7 +1156,7 @@
     margin: 0;
     min-width: 0;
     color: var(--nd-muted);
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     line-height: 1.3;
     white-space: nowrap;
     overflow: hidden;
@@ -1074,7 +1182,7 @@
     border-radius: var(--nd-radius-pill);
     background: var(--nd-accent-wash);
     color: var(--nd-accent-deep);
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     font-weight: 600;
     line-height: 1.4;
     white-space: nowrap;
@@ -1082,7 +1190,7 @@
 
 :is(#nai-dbgen-root, .nd-root) .nd-style-card__status {
     color: var(--nd-muted);
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     line-height: 1.4;
     white-space: nowrap;
 }
@@ -1103,7 +1211,6 @@
     gap: 4px;
     margin-top: auto;
     padding: 8px 12px 12px;
-    border-top: 1px solid #f4e1e9;
 }
 
 /*
@@ -1118,7 +1225,7 @@
     border-radius: var(--nd-radius-xs) !important;
     background: #fff6fa !important;
     color: #875d71 !important;
-    font-size: var(--nd-fs-xs) !important;
+    font-size: var(--nd-fs-sm) !important;
     font-weight: 600;
     line-height: 1.2 !important;
 }
@@ -1161,9 +1268,8 @@
     }
 
     :is(#nai-dbgen-root, .nd-root) .nd-style-grid {
-        /* 窄档仍 2 列小卡，禁止单卡撑满整屏 */
-        grid-template-columns: repeat(2, minmax(0, 180px));
-        justify-content: start;
+        /* 窄档 2 列，铺满容器宽 */
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 10px;
     }
 
@@ -1186,7 +1292,7 @@
     }
 
     :is(#nai-dbgen-root, .nd-root) .nd-style-card__body h3 {
-        font-size: var(--nd-fs-base);
+        font-size: var(--nd-fs-md);
     }
 
     :is(#nai-dbgen-root, .nd-root) .nd-style-card__actions {
@@ -1197,8 +1303,7 @@
 
 @container nd-root (max-width: 420px) {
     :is(#nai-dbgen-root, .nd-root) .nd-style-grid {
-        grid-template-columns: repeat(2, minmax(0, 180px));
-        justify-content: start;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 8px;
     }
 
@@ -1240,10 +1345,11 @@
     border: 0 !important;
     border-radius: 0 !important;
     outline: 0;
+    box-shadow: none !important;
     background: transparent !important;
     color: var(--nd-text) !important;
     font-family: inherit !important;
-    font-size: var(--nd-fs-sm) !important;
+    font-size: var(--nd-fs-md) !important;
     line-height: 1.2 !important;
 }
 
@@ -1258,7 +1364,7 @@
     border: 0 !important;
     border-radius: var(--nd-radius-pill) !important;
     background: transparent !important;
-    color: #a6406c !important;
+    color: var(--nd-clear-fg) !important;
     cursor: pointer;
     font-family: inherit !important;
     font-size: var(--nd-fs-lg) !important;
@@ -1267,7 +1373,7 @@
 
 :is(#nai-dbgen-root, .nd-root) .nd-picker__clear:hover {
     background: var(--nd-surface-2) !important;
-    color: #a6406c !important;
+    color: var(--nd-clear-fg) !important;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-picker__results {
@@ -1329,8 +1435,8 @@
     place-items: center;
     overflow: hidden;
     border-radius: var(--nd-radius-sm);
-    background: linear-gradient(145deg, #f9d7e6, #f0e2fa);
-    color: rgba(186, 76, 125, 0.45);
+    background: var(--nd-thumb-grad);
+    color: var(--nd-mark-strong);
     font: italic 28px Georgia, var(--nd-serif);
 }
 
@@ -1348,7 +1454,7 @@
         var(--nd-cover-grad-b) 55%,
         var(--nd-cover-grad-c)
     );
-    color: rgba(186, 76, 125, 0.45);
+    color: var(--nd-mark-strong);
     font: italic 22px Georgia, var(--nd-serif);
 }
 
@@ -1367,8 +1473,8 @@
 
 :is(#nai-dbgen-root, .nd-root) .nd-picker-option__meta strong {
     overflow: hidden;
-    color: #5f3d4d;
-    font-size: var(--nd-fs-sm);
+    color: var(--nd-heading);
+    font-size: var(--nd-fs-md);
     line-height: 1.35;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1380,7 +1486,7 @@
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     color: var(--nd-muted);
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     line-height: 1.45;
     overflow-wrap: anywhere;
 }
@@ -1443,7 +1549,7 @@
 :is(#nai-dbgen-root, .nd-root) .nd-import-preview h3 {
     margin: 0;
     font-family: var(--nd-serif);
-    font-size: var(--nd-fs-display);
+    font-size: var(--nd-fs-title);
     font-weight: 500;
 }
 
@@ -1478,7 +1584,7 @@
 :is(#nai-dbgen-root, .nd-root) .nd-import-preview__toolbar p {
     margin: 0.35em 0 0;
     color: var(--nd-muted);
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-import-status {
@@ -1497,7 +1603,7 @@
 :is(#nai-dbgen-root, .nd-root) .nd-table-scroll table {
     width: 100%;
     border-collapse: collapse;
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-import-group td {
@@ -1521,7 +1627,7 @@
 :is(#nai-dbgen-root, .nd-root) .nd-table-scroll .nd-input {
     height: var(--nd-h-icon) !important;
     min-height: var(--nd-h-icon) !important;
-    font-size: var(--nd-fs-base) !important;
+    font-size: var(--nd-fs-md) !important;
     padding: 0 8px !important;
 }
 
@@ -1537,9 +1643,10 @@
     min-height: 0 !important;
     margin: 0;
     padding: 0 !important;
-    border: 1px solid var(--nd-line-strong) !important;
+    border: 1px solid var(--nd-accent-soft) !important;
     border-radius: var(--nd-radius-xs) !important;
-    background: var(--nd-input-bg) !important;
+    background: var(--nd-surface-2) !important;
+    box-shadow: none !important;
     color: inherit !important;
     font-family: inherit !important;
     font-size: inherit !important;
@@ -1555,8 +1662,14 @@
     width: 0.65em;
     height: 0.65em;
     transform: scale(0);
-    box-shadow: inset 1em 1em var(--nd-accent);
+    box-shadow: inset 1em 1em var(--nd-on-accent) !important;
     clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-table-scroll input[type="checkbox"]:checked,
+:is(#nai-dbgen-root, .nd-root) .nd-import input[type="checkbox"]:checked {
+    background: var(--nd-accent) !important;
+    border-color: var(--nd-accent) !important;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-table-scroll input[type="checkbox"]:checked::before,
@@ -1662,6 +1775,24 @@
     min-width: 0;
 }
 
+/* 0.2.45：编辑弹窗固定底栏，只放按钮行，不随表单滚动 */
+:is(#nai-dbgen-root, .nd-root) .nd-popup-footer {
+    flex: 0 0 auto;
+    min-width: 0;
+    padding: var(--nd-space-stack) 0 0;
+    border-top: 1px solid var(--nd-line);
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-popup-footer:empty {
+    display: none;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-popup-footer > .nd-form__actions {
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
 :is(#nai-dbgen-root, .nd-root) .nd-modal-actions {
     display: flex;
     flex-wrap: wrap;
@@ -1685,13 +1816,14 @@ dialog.nd-native-dialog.nd-root {
     max-width: 94vw;
     /* 视口约束高度；禁止 fit-content 把弹窗撑成内容全高 */
     max-height: min(90vh, 820px);
-    height: auto;
+    /* 0.2.46：模态 dialog 是 inset:0 定位，height:auto 会拉满视口；fit-content 才是跟内容走 */
+    height: fit-content;
     min-height: 0 !important;
     margin: auto;
     padding: 0 !important;
     border: 1px solid var(--nd-line-strong) !important;
     border-radius: var(--nd-radius-lg) !important;
-    background: #fffafd !important;
+    background: var(--nd-popup-bg) !important;
     color: var(--nd-text) !important;
     box-shadow: var(--nd-shadow) !important;
     overflow: hidden !important;
@@ -1708,7 +1840,24 @@ dialog.nd-native-dialog.nd-root.large_dialogue_popup {
     min-height: 0 !important;
 }
 
-/* 大面板撑满定高，内部列表才能滚动。确认框另走 table，不吃这条。 */
+/* 0.2.43：管理台（含生成工作台）贴边全屏；!important 压过酒馆 .large_dialogue_popup 的 90dvh / 90dvw */
+dialog.nd-popup.nd-root.nd-manager-popup.large_dialogue_popup,
+dialog.nd-native-dialog.nd-root.nd-manager-popup {
+    width: 100vw !important;
+    width: 100dvw !important;
+    max-width: 100vw !important;
+    max-width: 100dvw !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: 100vh !important;
+    max-height: 100dvh !important;
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left) !important;
+}
+
+/* 大面板撑满定高，内部列表才能滚动。确认框高度自适应，不吃这条。 */
 dialog.nd-popup.nd-root.large_dialogue_popup :is(#nai-dbgen-root, .nd-root).nd-modal-root,
 dialog.nd-native-dialog.nd-root.large_dialogue_popup :is(#nai-dbgen-root, .nd-root).nd-modal-root,
 dialog.nd-native-dialog.nd-root.large_dialogue_popup :is(#nai-dbgen-root, .nd-root) .nd-native-dialog__shell,
@@ -1731,24 +1880,24 @@ dialog.nd-native-dialog.nd-root:not(.large_dialogue_popup):not(.nd-popup--compac
 }
 
 /*
- * 确认框跟内容走。用 table 收缩：flex / max-content 会把中文收成一个字，或把框收成边框。
+ * 0.2.45：确认框与编辑弹窗同宽（min(900px, 94vw)），高度跟内容走。
  */
 dialog.nd-popup.nd-root:has(.nd-confirm),
 dialog.nd-native-dialog.nd-root:has(.nd-confirm),
 dialog.nd-popup.nd-root.nd-popup--compact,
 dialog.nd-native-dialog.nd-root.nd-popup--compact {
-    display: table !important;
-    width: auto !important;
+    width: min(900px, 94vw) !important;
     min-width: 0 !important;
-    max-width: min(36em, calc(100vw - 48px)) !important;
-    height: auto !important;
+    max-width: 94vw !important;
+    height: fit-content !important;
     min-height: 0 !important;
-    max-height: none !important;
+    max-height: calc(100dvh - 2em) !important;
+    overflow-y: auto !important;
 }
 
 dialog.nd-popup.nd-root::backdrop,
 dialog.nd-native-dialog.nd-root::backdrop {
-    background: rgba(52, 24, 38, 0.45);
+    background: var(--nd-backdrop, rgba(52, 24, 38, 0.45));
 }
 
 /* 酒馆内层包裹：去掉背景/边框/圆角/padding，避免「方框里套圆角」 */
@@ -1791,9 +1940,8 @@ dialog.nd-native-dialog.nd-root:has(.nd-confirm) .nd-native-dialog__card {
 
 dialog.nd-popup.nd-root:has(.nd-confirm) .nd-modal-root,
 dialog.nd-native-dialog.nd-root:has(.nd-confirm) .nd-modal-root {
-    display: table !important;
-    width: auto !important;
-    max-width: min(36em, calc(100vw - 48px)) !important;
+    width: 100% !important;
+    max-width: none !important;
     height: auto !important;
     min-height: 0 !important;
     max-height: none !important;
@@ -1889,7 +2037,7 @@ dialog.nd-native-dialog.nd-root .nd-root {
     overflow: hidden;
     border: 1px solid var(--nd-line);
     border-radius: var(--nd-radius-md);
-    background: linear-gradient(145deg, #fff2f7, #fff);
+    background: var(--nd-cover-grad);
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-detail-cover img {
@@ -1902,7 +2050,7 @@ dialog.nd-native-dialog.nd-root .nd-root {
 :is(#nai-dbgen-root, .nd-root) .nd-detail-cover .nd-cover-monogram,
 :is(#nai-dbgen-root, .nd-root) .nd-detail-cover > span {
     font: italic 100px Georgia, serif;
-    color: rgba(186, 76, 125, 0.2);
+    color: var(--nd-cover-mark);
     line-height: 1;
     pointer-events: none;
     user-select: none;
@@ -1926,10 +2074,10 @@ dialog.nd-native-dialog.nd-root .nd-root {
     display: grid;
     place-items: center;
     overflow: hidden;
-    border: 1px solid #efd7e2;
+    border: 1px solid var(--nd-test-cover-line);
     border-radius: var(--nd-radius-sm);
-    background: linear-gradient(145deg, #fff0f6, #f5e9ff);
-    color: #dca5bd;
+    background: var(--nd-test-cover-grad);
+    color: var(--nd-test-cover-fg);
     font: 34px Georgia, var(--nd-serif);
 }
 
@@ -1937,7 +2085,7 @@ dialog.nd-native-dialog.nd-root .nd-root {
     width: 100%;
     height: 100%;
     object-fit: contain;
-    background: #fff8fb;
+    background: var(--nd-img-bg);
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-native-dialog__close {
@@ -1954,10 +2102,39 @@ dialog.nd-native-dialog.nd-root .nd-root {
     background: color-mix(in srgb, var(--nd-surface-2) 88%, transparent) !important;
     color: var(--nd-muted) !important;
     font-family: inherit !important;
-    font-size: 20px !important;
+    font-size: var(--nd-fs-lg) !important;
     line-height: 1 !important;
     cursor: pointer;
     padding: 0 !important;
+}
+
+/* 0.2.45：管理台夜间模式切换钮（× 左边，同尺寸） */
+:is(#nai-dbgen-root, .nd-root) .nd-theme-toggle {
+    flex: 0 0 auto;
+    width: 32px !important;
+    height: 32px !important;
+    min-height: 32px !important;
+    margin: 0 0 0 auto !important;
+    display: inline-grid;
+    place-items: center;
+    border: 0 !important;
+    border-radius: var(--nd-radius-xs) !important;
+    background: color-mix(in srgb, var(--nd-surface-2) 88%, transparent) !important;
+    color: var(--nd-muted) !important;
+    font-family: inherit !important;
+    font-size: var(--nd-fs-md) !important;
+    line-height: 1 !important;
+    cursor: pointer;
+    padding: 0 !important;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-theme-toggle:hover {
+    background: var(--nd-ghost-hover) !important;
+    color: var(--nd-accent) !important;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-popup-header:has(.nd-theme-toggle) .nd-modal-title {
+    flex: 0 1 auto;
 }
 
 /* 找不到 header 时的兜底：仍绝对定位在容器右上，不占 flex 列 */
@@ -1980,7 +2157,8 @@ dialog.nd-popup.nd-root > .nd-native-dialog__close {
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-nested-list__parent {
-    border: 1px solid var(--nd-line);
+    /* 0.2.49：透明 1px 边会露出白色底，看起来像白边框 */
+    border: 0;
     border-radius: var(--nd-radius-md);
     background: var(--nd-surface);
     overflow: hidden;
@@ -1998,6 +2176,7 @@ dialog.nd-popup.nd-root > .nd-native-dialog__close {
     padding: 10px 12px;
     border-bottom: 1px solid var(--nd-line);
     background: var(--nd-surface-2);
+    cursor: pointer;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-nested-list__expand {
@@ -2030,7 +2209,7 @@ dialog.nd-popup.nd-root > .nd-native-dialog__close {
     align-items: center;
     gap: 6px;
     color: var(--nd-muted);
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-nested-list__enable {
@@ -2228,7 +2407,7 @@ dialog.nd-image-only > .nd-image-only__img {
 .nd-image-only__error { color: #fff; }
 .nd-image-only__error[hidden] { display: none; }
 
-/* —— 4.13 出图参数表单（运行配置 / 工作台共用） —— */
+/* —— 4.13 出图参数表单（出图参数页 / 工作台共用） —— */
 :is(#nai-dbgen-root, .nd-root) .nd-nai-params {
     display: grid;
     gap: var(--nd-space-stack);
@@ -2242,14 +2421,14 @@ dialog.nd-image-only > .nd-image-only__img {
     border-radius: var(--nd-radius-sm);
     background: color-mix(in srgb, var(--nd-accent-soft) 16%, var(--nd-surface));
     color: var(--nd-soft);
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     line-height: 1.45;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-nai-params__hint {
     margin: -0.2em 0 0;
     color: var(--nd-muted);
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     line-height: 1.4;
 }
 

@@ -32,7 +32,7 @@
 :is(#nai-dbgen-root, .nd-root) .nd-debug-card__meta {
     margin: 0;
     color: var(--nd-muted);
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-debug-card__text {
@@ -57,7 +57,7 @@
     word-break: break-word;
     overflow: auto;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     line-height: 1.45;
 }
 
@@ -118,7 +118,7 @@
 
 /*
  * 滚动模型：标题 + 标签固定；body 吃剩余高度。
- * 库/列表面板由内部 scroller 滚；表单面板（运行配置/存储）由 panel 自身滚。
+ * 库/列表面板由内部 scroller 滚；表单面板（常规设置/存储）由 panel 自身滚。
  */
 :is(#nai-dbgen-root, .nd-root) .nd-shell__body {
     display: flex;
@@ -136,6 +136,16 @@
     min-width: 0;
     min-height: 0;
     overflow: hidden;
+}
+
+/* 常驻面板（生成工作台）切走时只隐藏；display:flex 会盖过 [hidden] */
+:is(#nai-dbgen-root, .nd-root) .nd-shell__panel[hidden] {
+    display: none;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-shell__panel--workbench > .nd-workbench {
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-panel {
@@ -177,20 +187,51 @@
 
 :is(#nai-dbgen-root, .nd-root) .nd-library-view > .nd-library-toolbar,
 :is(#nai-dbgen-root, .nd-root) .nd-library-view > .nd-model-tag-filter,
-:is(#nai-dbgen-root, .nd-root) .nd-library-view > .nd-artist-bulk,
+:is(#nai-dbgen-root, .nd-root) .nd-library-view > .nd-artist-filter-row,
+:is(#nai-dbgen-root, .nd-root) .nd-library-view > .nd-library-view__status-row,
 :is(#nai-dbgen-root, .nd-root) .nd-library-view > .nd-library-view__status {
     flex: 0 0 auto;
 }
 
-:is(#nai-dbgen-root, .nd-root) .nd-artist-bulk {
+/* 0.2.47：版本筛选 + 批量按钮同一行 */
+:is(#nai-dbgen-root, .nd-root) .nd-artist-filter-row {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-artist-filter-row > .nd-model-tag-filter {
+    flex: 0 0 auto;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-artist-filter-row__sep {
+    width: 1px;
+    align-self: stretch;
+    min-height: var(--nd-h-micro);
+    background: var(--nd-divider);
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-artist-bulk__btn {
+    min-height: var(--nd-h-micro) !important;
+    height: auto !important;
+    padding: 0 10px !important;
+    border-radius: var(--nd-radius-sm) !important;
+    font-size: var(--nd-fs-sm) !important;
+}
+
+:is(#nai-dbgen-root, .nd-root) :is(.nd-artist-filter-row__sep, .nd-artist-bulk__btn, .nd-artist-bulk__count)[hidden] {
+    display: none !important;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-library-view__status-row {
+    display: flex;
+    justify-content: space-between;
     align-items: center;
     gap: 8px;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-artist-bulk__count {
-    margin-left: auto;
     color: var(--nd-muted);
     font-size: var(--nd-fs-sm);
 }
@@ -227,6 +268,9 @@
     display: block;
     margin-top: 4px;
     font-size: var(--nd-fs-sm);
+    /* 0.2.43：<small> 会继承酒馆全局 small 的主题正文色 + opacity 0.7，粉底上看不清 */
+    color: var(--nd-muted);
+    opacity: 1;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-key-preview {
@@ -236,7 +280,7 @@
     border-radius: var(--nd-radius-sm);
     background: var(--nd-surface-2);
     color: var(--nd-text);
-    font-size: var(--nd-fs-base);
+    font-size: var(--nd-fs-md);
     line-height: 1.4;
     word-break: break-all;
 }
@@ -265,8 +309,7 @@
 :is(#nai-dbgen-root, .nd-root) .nd-confirm {
     display: grid;
     gap: 12px;
-    width: max-content;
-    max-width: min(32em, calc(100vw - 88px));
+    width: auto;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-confirm p {
@@ -327,6 +370,38 @@
     color: var(--nd-accent-deep) !important;
 }
 
+/* 0.2.45 画师串编辑：左栏名称 / 版本 / 正向，右上预览图 */
+:is(#nai-dbgen-root, .nd-root) .nd-artist-editor__top {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 200px;
+    align-items: start;
+    gap: 12px;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-artist-editor__main {
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-artist-editor__side {
+    min-width: 0;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-artist-editor__side .nd-artist-preview-cover {
+    width: 100%;
+}
+
+@container nd-root (max-width: 540px) {
+    :is(#nai-dbgen-root, .nd-root) .nd-artist-editor__top {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    :is(#nai-dbgen-root, .nd-root) .nd-artist-editor__side .nd-artist-preview-cover {
+        width: min(100%, 280px);
+    }
+}
+
 :is(#nai-dbgen-root, .nd-root) .nd-artist-preview-cover {
     /* 编辑态预览：与库卡同 832:1216，贴满 cover */
     width: min(100%, 280px);
@@ -336,11 +411,11 @@
     place-items: center;
     border: 1px solid var(--nd-line);
     border-radius: var(--nd-radius-md);
-    background: linear-gradient(145deg, #fff2f7, #fff);
+    background: var(--nd-cover-grad);
     overflow: hidden;
     font-family: var(--nd-serif);
     font-size: var(--nd-fs-display);
-    color: rgba(186, 76, 125, 0.2);
+    color: var(--nd-cover-mark);
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-artist-preview-cover img {
@@ -366,13 +441,13 @@
 
 :is(#nai-dbgen-root, .nd-root) .nd-prompts-toolbar__hint {
     margin: 0;
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     line-height: 1.35;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-preset-vars-hint {
     margin: 0;
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     line-height: 1.45;
     color: var(--nd-muted);
 }
@@ -401,14 +476,14 @@
 
 :is(#nai-dbgen-root, .nd-root) .nd-prompts-floor__title {
     margin: 0;
-    font-size: var(--nd-fs-md);
+    font-size: var(--nd-fs-lg);
     font-weight: 600;
     color: var(--nd-text);
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-prompts-floor__summary {
     margin: 0;
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     line-height: 1.35;
 }
 
@@ -471,7 +546,7 @@
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-prompt-card__thumb-empty {
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     color: var(--nd-muted);
     text-align: center;
     padding: 4px;
@@ -509,7 +584,7 @@
 
 :is(#nai-dbgen-root, .nd-root) .nd-prompt-card__section-title {
     margin: 0;
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     font-weight: 700;
     color: var(--nd-accent);
     line-height: 1.35;
@@ -535,7 +610,7 @@
     margin: 0;
     padding: 1px 7px;
     border-radius: var(--nd-radius-pill);
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     font-weight: 600;
     line-height: 1.35;
     white-space: nowrap;
@@ -553,7 +628,7 @@
 
 :is(#nai-dbgen-root, .nd-root) .nd-prompt-card__kv-value {
     margin: 0;
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     line-height: 1.45;
     color: var(--nd-text);
     white-space: pre-wrap;
@@ -580,13 +655,13 @@
     padding: 6px 8px;
     border: 1px solid var(--nd-line);
     border-radius: var(--nd-radius-xs);
-    background: var(--nd-surface);
+    background: var(--nd-surface-2);
     box-sizing: border-box;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-prompt-card__char-title {
     margin: 0;
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     font-weight: 600;
     color: var(--nd-text);
     line-height: 1.35;
@@ -610,7 +685,7 @@
 :is(#nai-dbgen-root, .nd-root) .nd-prompt-card__foot .nd-checkbox-row {
     min-height: 0;
     gap: 0.4em;
-    font-size: var(--nd-fs-xs);
+    font-size: var(--nd-fs-sm);
     color: var(--nd-muted);
 }
 
@@ -623,7 +698,7 @@
     height: var(--nd-h-micro) !important;
     min-height: var(--nd-h-micro) !important;
     padding: 0 10px !important;
-    font-size: var(--nd-fs-xs) !important;
+    font-size: var(--nd-fs-sm) !important;
     line-height: 1.2 !important;
 }
 
@@ -688,7 +763,7 @@
 
 :is(#nai-dbgen-root, .nd-root) .nd-form__group-title {
     margin: 0;
-    font-size: var(--nd-fs-md);
+    font-size: var(--nd-fs-lg);
     font-weight: 600;
 }
 
@@ -719,7 +794,7 @@
     box-sizing: border-box;
     border: 1px solid var(--nd-line) !important;
     border-radius: var(--nd-radius-sm) !important;
-    background: var(--nd-surface) !important;
+    background: var(--nd-surface-2) !important;
     color: var(--nd-text) !important;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
 }
@@ -740,7 +815,11 @@
 
 :is(#nai-dbgen-root, .nd-root) .nd-combobox__option:hover,
 :is(#nai-dbgen-root, .nd-root) .nd-combobox__option.is-active {
-    background: var(--nd-surface-2) !important;
+    background: var(--nd-accent-wash) !important;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-combobox__option.is-active {
+    background: color-mix(in srgb, var(--nd-accent-soft) 24%, var(--nd-surface-2)) !important;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-panel--storage {
@@ -756,7 +835,7 @@
 
 :is(#nai-dbgen-root, .nd-root) .nd-storage-block__title {
     margin: 0;
-    font-size: var(--nd-fs-md);
+    font-size: var(--nd-fs-lg);
     font-weight: 600;
     color: var(--nd-text);
 }
@@ -782,7 +861,7 @@
     padding: 8px;
     border: 1px solid var(--nd-line);
     border-radius: 8px;
-    background: var(--nd-surface, #fff);
+    background: var(--nd-surface-2, #fff0f6);
     cursor: pointer;
 }
 
@@ -793,13 +872,78 @@
     max-height: 420px;
     object-fit: contain;
     border-radius: 4px;
-    background: var(--nd-surface-2, #f3f3f3);
+    background: var(--nd-surface, #fffdfd);
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-cache-card__cap {
     margin-top: 4px;
-    font-size: 11px;
+    font-size: var(--nd-fs-sm);
     line-height: 1.3;
-    color: var(--nd-text-muted, #666);
+    color: var(--nd-muted);
     word-break: break-all;
+}
+
+/* 常规设置 · 快速配置悬浮窗内容显隐器：整组一张卡片，行间只用分隔线 */
+:is(#nai-dbgen-root, .nd-root) .nd-quick-vis {
+    display: grid;
+    gap: 0;
+    border: 1px solid var(--nd-line);
+    border-radius: var(--nd-radius-md);
+    background: var(--nd-surface-2);
+    overflow: hidden;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-quick-vis__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 46px;
+    padding: 0 8px 0 14px;
+    border-bottom: 1px solid var(--nd-divider);
+    background: transparent;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-quick-vis__row:last-child {
+    border-bottom: 0;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-quick-vis__label {
+    color: var(--nd-soft);
+    font-size: var(--nd-fs-md);
+    font-weight: 700;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-quick-vis__row.is-hidden .nd-quick-vis__label {
+    color: var(--nd-muted);
+    opacity: 0.6;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-quick-vis__eye {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--nd-h-micro);
+    height: var(--nd-h-micro);
+    padding: 0;
+    border: 0;
+    border-radius: var(--nd-radius-xs);
+    background: transparent;
+    color: var(--nd-accent);
+    font-size: var(--nd-fs-sm) !important;
+    line-height: 1 !important;
+    cursor: pointer;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-quick-vis__eye i {
+    font-size: inherit;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-quick-vis__row.is-hidden .nd-quick-vis__eye {
+    color: var(--nd-muted);
+}
+
+/* 画师串库：批量栏只在选择模式出现 */
+:is(#nai-dbgen-root, .nd-root) .nd-artist-bulk[hidden] {
+    display: none;
 }

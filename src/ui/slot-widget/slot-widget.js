@@ -59,7 +59,13 @@ import { openSlotImageViewer } from '../common/image-viewer.js';
  *   D35 / D42
  * @property {{ on: (type: string, fn: (payload: unknown) => void) => (() => void) }} [bus]
  * @property {import('../../ports/host.port.js').HostPort} [host]
+ * @property {(messageId: number) => boolean} [isWritingPrompts] 本楼正在写生图提示词
+ * @property {() => any} [loadSettings] 读插件设置（双击重生 / 确认 / 主题）
+ * @property {() => Promise<boolean>} [confirmRegenerate] 双击重生前的确认
  */
+
+/** 单击等待第二次点击的窗口（ms）；窗口内第二次点击算双击。 */
+const DOUBLE_TAP_MS = 300;
 
 /**
  * @param {Element} root
@@ -375,7 +381,7 @@ function paintImage(imgBox, url, onThumbClick) {
     const img = (imgBox.ownerDocument || document).createElement('img');
     img.className = 'nd-slot__thumb';
     img.alt = '';
-    img.style.cssText = 'display:block;width:100%;height:auto;margin-top:8px';
+    img.style.cssText = 'display:block;width:100%;height:auto;margin-top:8px;touch-action:manipulation';
     img.src = safe;
     img.addEventListener('click', onThumbClick);
     imgBox.appendChild(img);
@@ -416,6 +422,27 @@ export function mountSlotWidget(rootEl, messageId, deps) {
     let unsubChat = null;
     /** @type {number} */
     let paintGeneration = 0;
+    /** @type {ReturnType<typeof setTimeout>|null} */
+    let tapTimer = null;
+
+    function readSettings() {
+        try {
+            return (typeof deps.loadSettings === 'function' ? deps.loadSettings() : null) || {};
+        } catch {
+            return {};
+        }
+    }
+
+    function doubleTapEnabled() {
+        return readSettings().slotDoubleTapRegenerate === true;
+    }
+
+    function clearTapTimer() {
+        if (tapTimer != null) {
+            clearTimeout(tapTimer);
+            tapTimer = null;
+        }
+    }
 
     /**
      * @returns {string|null}
@@ -471,6 +498,46 @@ export function mountSlotWidget(rootEl, messageId, deps) {
         if (event && typeof event.preventDefault === 'function') {
             event.preventDefault();
         }
+        if (destroyed || !currentImageUrl) {
+            return;
+        }
+        if (!doubleTapEnabled()) {
+            openViewer();
+            return;
+        }
+        if (tapTimer != null) {
+            // 第二次点击落在窗口内 → 双击重新生成
+            clearTapTimer();
+            void regenerateFromDoubleTap();
+            return;
+        }
+        tapTimer = setTimeout(() => {
+            tapTimer = null;
+            if (!destroyed) {
+                openViewer();
+            }
+        }, DOUBLE_TAP_MS);
+    }
+
+    async function regenerateFromDoubleTap() {
+        if (destroyed || btn.disabled) {
+            return;
+        }
+        if (readSettings().confirmSlotRegenerate !== false && typeof deps.confirmRegenerate === 'function') {
+            let ok = false;
+            try {
+                ok = await deps.confirmRegenerate();
+            } catch {
+                ok = false;
+            }
+            if (!ok || destroyed) {
+                return;
+            }
+        }
+        void runGenerate();
+    }
+
+    function openViewer() {
         if (destroyed || !currentImageUrl) {
             return;
         }
@@ -595,9 +662,18 @@ export function mountSlotWidget(rootEl, messageId, deps) {
 
         applyFloorImageScale(rootEl, imgBox, deps?.getFloorImageScale);
         applyStateClasses(view.stateClass);
-        btn.textContent = view.buttonLabel;
-        const clickable = view.canClick !== false && !view.busy;
+        const settingsNow = readSettings();
+        if (rootEl.dataset) {
+            rootEl.dataset.ndTheme = settingsNow.themeMode === 'dark' ? 'dark' : 'light';
+        }
+        const writingPrompts = typeof deps.isWritingPrompts === 'function'
+            && Boolean(deps.isWritingPrompts(messageId));
+        btn.textContent = writingPrompts && !view.busy ? '正在生成提示词…' : view.buttonLabel;
+        const clickable = view.canClick !== false && !view.busy && !writingPrompts;
         btn.disabled = !clickable;
+        // 双击重生开启且已有图：隐藏重新生成 / 重试按钮；空槽保留生图按钮
+        const hasImage = Boolean(imageRef && url && !cacheMissing) || view.state === 'done';
+        setBlockShown(btn, !(settingsNow.slotDoubleTapRegenerate === true && hasImage && !view.busy));
         if (typeof btn.setAttribute === 'function') {
             btn.setAttribute('aria-busy', view.busy ? 'true' : 'false');
         }
@@ -820,6 +896,7 @@ export function mountSlotWidget(rootEl, messageId, deps) {
                 return;
             }
             destroyed = true;
+            clearTapTimer();
             btn.removeEventListener('click', onBtnClick);
             if (unsubBus) {
                 unsubBus();

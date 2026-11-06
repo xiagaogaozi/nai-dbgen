@@ -27,6 +27,12 @@
     gap: 4px;
 }
 
+
+#nai-dbgen-drawer .nd-drawer__pickers[hidden],
+#nai-dbgen-drawer .nd-drawer__picker[hidden] {
+    display: none;
+}
+
 /* 无图/裂图：淡色块占位，不要字母或被裁文字 */
 #nai-dbgen-drawer .nd-picker__cover.nd-cover--empty,
 #nai-dbgen-drawer .nd-mini-cover.nd-cover--empty {

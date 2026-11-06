@@ -1,0 +1,120 @@
+/**
+ * L5 UI · 夜间模式（地雷色，0.2.46；配色来自 acu-v2-theme「地雷色」）。
+ * <html data-nd-theme="dark"> 时，只在插件自己的根（管理台 / 悬浮窗 / 弹窗 / 查看器 / 楼层控件）上重定义 --nd-* 颜色。
+ * 不写 :root / body / #chat / .mes；必须在 style.css 里最后导入。
+ * 线条全部 transparent，与主题文件一致；层次靠底色深浅区分。
+ */
+
+/* .nd-slot[data-nd-theme]：楼层控件可能在 iframe 里，<html> 上没有标记，控件根自己带一份 */
+[data-nd-theme="dark"] :is(#nai-dbgen-root, .nd-root, .nd-slot),
+.nd-slot[data-nd-theme="dark"] {
+    --nd-bg: #2B2B2B;
+    --nd-surface: #3C3739;
+    --nd-surface-2: #4A4245;
+    --nd-text: #FFFFFF;
+    --nd-muted: rgba(255, 255, 255, 0.5);
+    --nd-soft: rgba(255, 255, 255, 0.7);
+    --nd-line: transparent;
+    --nd-line-strong: transparent;
+    --nd-shadow-c: rgba(0, 0, 0, 0.45);
+
+    --nd-accent: #FFC4D4;
+    --nd-accent-deep: #FFD9E4;
+    --nd-accent-soft: #FFD9E4;
+    --nd-danger: #D96C6C;
+    --nd-on-accent: #2B2B2B;
+
+    --nd-scroll-thumb: rgba(255, 196, 212, 0.25);
+    --nd-scroll-thumb-hover: rgba(255, 196, 212, 0.4);
+    --nd-scroll-thumb-active: rgba(255, 217, 228, 0.55);
+
+    --nd-cover-grad-a: #443D3F;
+    --nd-cover-grad-b: #3C3739;
+    --nd-cover-grad-c: #4A3F43;
+    --nd-accent-wash: rgba(255, 196, 212, 0.12);
+    --nd-accent-ring: rgba(255, 196, 212, 0.25);
+    --nd-danger-wash: rgba(217, 108, 108, 0.12);
+    --nd-danger-ring: rgba(217, 108, 108, 0.3);
+    --nd-toggle-track: #1F1F1F;
+    --nd-toggle-knob: rgba(255, 255, 255, 0.5);
+    --nd-status-idle: rgba(255, 255, 255, 0.3);
+    --nd-input-bg: #1F1F1F;
+    --nd-fab-panel-bg: #1F1F1F;
+    --nd-ghost-hover: #443D3F;
+    --nd-picker-hover-line: rgba(255, 196, 212, 0.25);
+
+    --nd-card-bg: #3C3739;
+    --nd-card-line: transparent;
+    --nd-chip-bg: rgba(43, 43, 43, 0.88);
+    --nd-chip-ring: transparent;
+    --nd-search-line: transparent;
+    --nd-divider: transparent;
+    --nd-mark: rgba(255, 196, 212, 0.12);
+    --nd-mark-strong: rgba(255, 196, 212, 0.3);
+    --nd-clear-fg: #FFC4D4;
+    --nd-heading: #FFFFFF;
+    --nd-thumb-grad: linear-gradient(145deg, #443D3F, #3C3739);
+    --nd-cover-grad: linear-gradient(145deg, #443D3F, #2B2B2B);
+    --nd-cover-mark: rgba(255, 196, 212, 0.2);
+    --nd-test-cover-line: transparent;
+    --nd-test-cover-grad: linear-gradient(145deg, #443D3F, #3C3739);
+    --nd-test-cover-fg: rgba(255, 196, 212, 0.5);
+    --nd-img-bg: #2B2B2B;
+    --nd-popup-bg: #2B2B2B;
+    --nd-backdrop: rgba(0, 0, 0, 0.6);
+    --nd-float-shadow: rgba(0, 0, 0, 0.45);
+
+    color-scheme: dark;
+}
+
+/* 卡底小条 / 行内操作：亮色值被测试固定在 components.css，这里单独覆盖 */
+[data-nd-theme="dark"] :is(#nai-dbgen-root, .nd-root) .nd-mini-action {
+    background: #443D3F !important;
+    color: rgba(255, 255, 255, 0.7) !important;
+}
+
+[data-nd-theme="dark"] :is(#nai-dbgen-root, .nd-root) .nd-mini-action:hover:not(:disabled) {
+    background: rgba(255, 196, 212, 0.12) !important;
+    color: #FFC4D4 !important;
+}
+
+[data-nd-theme="dark"] :is(#nai-dbgen-root, .nd-root) .nd-mini-action--danger {
+    color: #D96C6C !important;
+}
+
+[data-nd-theme="dark"] :is(#nai-dbgen-root, .nd-root) .nd-mini-action--danger:hover:not(:disabled) {
+    background: rgba(217, 108, 108, 0.12) !important;
+    color: #E88A8A !important;
+}
+
+/* 原生 select 下拉项：浏览器默认白底，跟随夜间底色 */
+[data-nd-theme="dark"] :is(#nai-dbgen-root, .nd-root, .nd-slot) option,
+.nd-slot[data-nd-theme="dark"] option {
+    background: #3C3739;
+    color: #FFFFFF;
+}
+
+/* 悬浮球：亮色渐变在 floating-ball.css 里带 !important，这里同选择器 + 前缀压过 */
+/* 0.2.48：和管理台主按钮同色 */
+[data-nd-theme="dark"] :is(#nai-dbgen-root, .nd-root) button.nd-fab,
+[data-nd-theme="dark"] button.nd-fab.nd-fab {
+    background: var(--nd-accent, #FFC4D4) !important;
+    color: var(--nd-on-accent, #2B2B2B) !important;
+}
+
+[data-nd-theme="dark"] :is(#nai-dbgen-root, .nd-root) button.nd-fab:hover,
+[data-nd-theme="dark"] :is(#nai-dbgen-root, .nd-root) button.nd-fab:focus-visible,
+[data-nd-theme="dark"] button.nd-fab.nd-fab:hover,
+[data-nd-theme="dark"] button.nd-fab.nd-fab:focus-visible,
+[data-nd-theme="dark"] :is(#nai-dbgen-root, .nd-root) button.nd-fab:active,
+[data-nd-theme="dark"] :is(#nai-dbgen-root, .nd-root) button.nd-fab.nd-fab--dragging,
+[data-nd-theme="dark"] button.nd-fab.nd-fab:active,
+[data-nd-theme="dark"] button.nd-fab.nd-fab.nd-fab--dragging {
+    background: var(--nd-accent-deep, #FFD9E4) !important;
+    color: var(--nd-on-accent, #2B2B2B) !important;
+}
+
+[data-nd-theme="dark"] :is(#nai-dbgen-root, .nd-root) button.nd-fab .nd-fab__icon,
+[data-nd-theme="dark"] button.nd-fab.nd-fab .nd-fab__icon {
+    color: #2B2B2B !important;
+}

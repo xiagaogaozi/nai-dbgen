@@ -446,7 +446,7 @@ export function mountPresetPanel(root, deps) {
                 },
             }),
         );
-        form.appendChild(actions);
+        (modal.footer || form).appendChild(actions);
 
         async function save() {
             const name = nameField.getValue().trim();

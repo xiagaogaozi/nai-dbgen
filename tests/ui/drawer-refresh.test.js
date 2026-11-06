@@ -110,7 +110,7 @@ describe('D60 mountDrawer picker refresh', () => {
         await api.refresh();
 
         const inputs = findSearchInputs(root);
-        assert.equal(inputs.length, 6);
+        assert.equal(inputs.length, 7); // 0.2.49：生图模型也是 current-picker
         assert.equal(inputs[0].value, 'Artist One');
         assert.equal(inputs[1].value, 'NAI One');
 

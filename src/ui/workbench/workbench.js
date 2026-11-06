@@ -35,6 +35,13 @@ import { normalizeTagLibraryKind } from '../../domain/model/tag.js';
 import { parseCompositionKey } from '../../domain/model/composition-key.js';
 import { mountCaptionEditor } from './caption-editor.js';
 import { createPromptTextarea, linkTextareaHeights } from '../common/prompt-textarea.js';
+import { bindDebouncedInput } from '../common/debounced-input.js';
+import { createArtistModelTagChecks } from '../common/artist-model-tags.js';
+import {
+    artistModelTagForModel,
+    followModelForArtistTag,
+} from '../../domain/model/plugin-settings.js';
+import { resolveArtistModelTag } from '../../domain/model/artist.js';
 import {
     WORKBENCH_MAX_CHARACTERS,
     buildWritePromptInput,
@@ -506,7 +513,23 @@ export function mountWorkbench(root, deps) {
      */
     function setSectionOpen(body, toggle, open) {
         body.hidden = !open;
-        toggle.textContent = open ? '收起' : '展开';
+        paintChevron(toggle, open);
+    }
+
+    /**
+     * 0.2.48：展开/收起改用 chevron 图标，文字留在 aria-label / title。
+     * @param {HTMLElement} toggle
+     * @param {boolean} open
+     */
+    function paintChevron(toggle, open) {
+        const icon = document.createElement('i');
+        icon.className = `fa-solid ${open ? 'fa-chevron-up' : 'fa-chevron-down'}`;
+        icon.setAttribute('aria-hidden', 'true');
+        toggle.replaceChildren(icon);
+        const text = open ? '收起' : '展开';
+        toggle.setAttribute('aria-label', text);
+        toggle.title = text;
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
     }
 
     /**
@@ -636,6 +659,7 @@ export function mountWorkbench(root, deps) {
                         setSectionOpen(catState.body, catState.toggle, catState.userOpen);
                     },
                 });
+                paintChevron(toggle, false);
                 catState.toggle = toggle;
                 catHead.append(catControl.el, catCount, toggle);
                 body.append(catHead, catBody);
@@ -655,6 +679,7 @@ export function mountWorkbench(root, deps) {
                     setSectionOpen(group.body, group.toggle, group.userOpen);
                 },
             });
+            paintChevron(libToggle, false);
             head.appendChild(libToggle);
             const block = el('div', 'nd-wb-lib');
             block.append(head, body);
@@ -766,7 +791,7 @@ export function mountWorkbench(root, deps) {
         setText(searchEmpty, onlyPicked && !q ? '没有已勾选的条目' : '没有匹配的条目');
         searchEmpty.hidden = !filtering || anyVisible || libGroups.length === 0;
     }
-    searchInput.addEventListener('input', applyEntryFilter);
+    const entrySearchDebounce = bindDebouncedInput(searchInput, applyEntryFilter);
 
     /** @type {AbortController|null} */
     let writeAbort = null;
@@ -831,8 +856,12 @@ export function mountWorkbench(root, deps) {
     });
     marketActions.append(marketImportBtn, marketExportBtn);
     marketHeader.append(marketTitle, marketActions);
-    const marketSearch = /** @type {HTMLInputElement} */ (el('input', 'nd-input'));
+    // 0.2.49：和其他搜索框一样包一层 .nd-search-field，input 不带类名
+    const marketSearchWrap = el('div', 'nd-search-field');
+    const marketSearch = /** @type {HTMLInputElement} */ (el('input'));
     marketSearch.type = 'search';
+    marketSearch.autocomplete = 'off';
+    marketSearchWrap.appendChild(marketSearch);
     marketSearch.placeholder = '搜索标签名称或内容';
     marketSearch.setAttribute('aria-label', '搜索标签');
     const marketCategories = el('div', 'nd-wb-market__categories');
@@ -840,12 +869,12 @@ export function mountWorkbench(root, deps) {
     const marketGrid = el('div', 'nd-wb-market__grid');
     const marketEmpty = el('div', 'nd-empty-lab nd-wb-market__empty');
     marketEmpty.hidden = true;
-    market.append(marketHeader, marketSearch, marketCategories, marketGrid, marketEmpty);
+    market.append(marketHeader, marketSearchWrap, marketCategories, marketGrid, marketEmpty);
     // Prevent the tag button from taking focus away before the focused caption/caret is read.
     marketGrid.addEventListener('pointerdown', (event) => {
         if (event.target.closest?.('.nd-wb-market__tag')) event.preventDefault();
     });
-    marketSearch.addEventListener('input', renderMarket);
+    const marketSearchDebounce = bindDebouncedInput(marketSearch, renderMarket);
 
     function marketSignatureOf(catalog) {
         let hash = 2166136261;
@@ -1262,7 +1291,19 @@ export function mountWorkbench(root, deps) {
         if (fillPositive) artistPositiveField?.setValue(result.value.positivePrompt ?? '');
         if (fillNegative) artistNegativeField?.setValue(result.value.negativePrompt ?? '');
         if (fillPositive || fillNegative) persistWorkbenchDraft();
+        if (!initialize) followWorkbenchModel(result.value);
         return result.value;
+    }
+
+    /** 0.2.46：工作台换画师串时，模型系列不同就换成绑定模型（只换一次，不锁定）。 */
+    function followWorkbenchModel(artist) {
+        const settings = loadSettings() || {};
+        if (settings.naiModelFollowsArtist === false) return;
+        const cur = paramsForm.getValue();
+        const next = followModelForArtistTag(settings, cur.model, resolveArtistModelTag(artist));
+        if (!next) return;
+        paramsForm.setValue({ ...cur, model: next });
+        persistWorkbenchDraft();
     }
 
     function requestWorkbenchArtistSelection(id, options) {
@@ -1318,7 +1359,7 @@ export function mountWorkbench(root, deps) {
     }
 
     // ── 出图区（独立；绝不调 writePrompt）──────────────────────
-    // 4.13 共用组件（与运行配置同一套）
+    // 4.13 共用组件（与出图参数页同一套）
     const paramsForm = createNaiParamsForm(sessionParams, { presentation: 'workbench' });
 
     function readParams() {
@@ -1802,6 +1843,10 @@ export function mountWorkbench(root, deps) {
         const positiveField = makeField('画师串 · 正面', positiveDraft, true);
         const negativeField = makeField('画师串 · 负面', negativeDraft, true);
         const coverAvailable = typeof Blob !== 'undefined' && currentPreviewBlob instanceof Blob;
+        const modelTagChecks = createArtistModelTagChecks({
+            modelTag: artistModelTagForModel(paramsForm.getValue().model)
+                ?? (mode === 'update' && existing ? resolveArtistModelTag(existing) : 'v5'),
+        });
         const coverToggle = createCheckbox({
             label: '将当前预览图作为画师串封面',
             checked: false,
@@ -1809,7 +1854,7 @@ export function mountWorkbench(root, deps) {
         const coverInput = coverToggle.el.querySelector('input');
         if (coverInput) coverInput.disabled = !coverAvailable;
         const error = createInlineError();
-        form.append(nameField.el, positiveField.el, negativeField.el, coverToggle.el, error.el);
+        form.append(nameField.el, modelTagChecks.el, positiveField.el, negativeField.el, coverToggle.el, error.el);
 
         let modal = null;
         let settled = false;
@@ -1840,6 +1885,7 @@ export function mountWorkbench(root, deps) {
                         name: nameField.input.value,
                         positivePrompt: positiveField.input.value,
                         negativePrompt: negativeField.input.value,
+                        modelTag: modelTagChecks.getTag(),
                         coverBlob: coverToggle.getValue() && coverAvailable ? currentPreviewBlob : null,
                     });
                     if (!result?.ok || !result.value) {
@@ -2133,7 +2179,8 @@ export function mountWorkbench(root, deps) {
             statusPill.destroy();
             nlField.destroy();
             floorToggle.destroy();
-            searchInput.removeEventListener('input', applyEntryFilter);
+            entrySearchDebounce.dispose();
+            marketSearchDebounce.dispose();
             for (const c of libControls) c.destroy();
             captionEditor.destroy();
             replaceToggle.destroy();

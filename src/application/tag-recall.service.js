@@ -160,7 +160,7 @@ export function createTagRecallService(deps) {
                 return Err(configError({
                     code: 'RECALL_LLM_UNSET',
                     message: '未选择标签召回用的 LLM 配置',
-                    hint: '请在运行配置中为「标签召回」选定 LLM',
+                    hint: '请在常规设置中为「标签召回」选定 LLM',
                     traceId: traceId ?? null,
                 }));
             }

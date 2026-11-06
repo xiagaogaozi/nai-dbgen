@@ -31,9 +31,9 @@ describe('D68 library layout (artist card + radius tokens)', () => {
     it('grid / card / cover / actions use card tokens and 832/1216', () => {
         assert.match(
             css,
-            /\.nd-style-grid\s*\{[^}]*minmax\(150px,\s*180px\)/s,
+            /\.nd-style-grid\s*\{[^}]*minmax\(150px,\s*1fr\)/s,
         );
-        assert.match(css, /\.nd-style-grid\s*\{[^}]*justify-content:\s*start/s);
+        assert.doesNotMatch(css, /\.nd-style-grid\s*\{[^}]*justify-content:\s*start/s);
         assert.match(css, /\.nd-style-grid\s*\{[^}]*align-items:\s*stretch/s);
         assert.match(css, /\.nd-style-grid--text\s*\{[^}]*align-items:\s*stretch/s);
         assert.match(css, /\.nd-style-card\s*\{[^}]*align-self:\s*stretch/s);
@@ -48,7 +48,7 @@ describe('D68 library layout (artist card + radius tokens)', () => {
         assert.match(css, /\.nd-style-card__cover\s*\{[^}]*min-height:\s*0\s*!important/s);
         assert.match(
             css,
-            /\.nd-cover-monogram\s*\{[^}]*color:\s*rgba\(\s*186,\s*76,\s*125,\s*0?\.22\s*\)/s,
+            /\.nd-cover-monogram\s*\{[^}]*color:\s*var\(--nd-mark\)/s,
         );
         assert.match(css, /\.nd-cover-monogram\s*\{[^}]*font:\s*italic\s+var\(--nd-cover-mono-size\)/s);
         assert.match(tokens, /--nd-cover-mono-size:\s*84px/);
@@ -70,7 +70,7 @@ describe('D68 library layout (artist card + radius tokens)', () => {
         assert.match(css, /\.nd-style-card__body\s*\{[^}]*padding:\s*10px\s+12px/s);
         assert.match(
             css,
-            /\.nd-style-card__title\s*\{[^}]*font-size:\s*var\(--nd-fs-base\)/s,
+            /\.nd-style-card__title\s*\{[^}]*font-size:\s*var\(--nd-fs-md\)/s,
         );
         assert.match(
             css,

@@ -523,19 +523,24 @@ describe('ui/floating-ball/floating-ball', () => {
         assert.doesNotThrow(() => api.destroy());
     });
 
-    it('配置里打开隐藏悬浮球后球隐藏，再次挂上仍隐藏', async () => {
+    it('常规设置改了隐藏悬浮球后球立即隐藏，再次挂上仍隐藏', async () => {
         const root = document.createElement('div');
         document.body.appendChild(root);
         /** @type {ReturnType<typeof defaultPluginSettings>} */
         let settings = { ...defaultPluginSettings() };
+        /** @type {Set<() => void>} */
+        const listeners = new Set();
         const deps = {
             loadSettings: () => settings,
             saveSettings: (next) => {
                 settings = next;
             },
             subscribeSettings: () => () => {},
+            onSettingsChange: (fn) => {
+                listeners.add(fn);
+                return () => listeners.delete(fn);
+            },
             openManagement: () => {},
-            openWorkbench: () => {},
             repos: {},
             generateFloor: async () => ({
                 ok: true,
@@ -557,12 +562,9 @@ describe('ui/floating-ball/floating-ball', () => {
 
         api.openConfigPanel();
 
-        const labelText = findNode(root, (n) => n.textContent === '隐藏悬浮球');
-        assert.ok(labelText, '配置面板里应有隐藏悬浮球');
-        const input = labelText.closest('label').querySelector('input');
-        input.checked = true;
-        fire(input, 'change');
-        assert.equal(settings.hideFloatingBall, true);
+        assert.notEqual(findNode(root, (n) => n.textContent === '隐藏悬浮球'), null, '配置面板里有隐藏悬浮球开关（默认隐藏，可在显隐器打开）');
+        settings = { ...settings, hideFloatingBall: true };
+        for (const fn of listeners) fn();
         assert.equal(ball.classList.contains('nd-fab--hidden'), true);
         api.destroy();
 

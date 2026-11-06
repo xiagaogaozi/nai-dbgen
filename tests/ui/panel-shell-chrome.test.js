@@ -153,7 +153,7 @@ describe('management shell chrome (padding / header close / toolbar / empty cove
             /\.nd-style-card__cover\s*\{[^}]*aspect-ratio:\s*832\s*\/\s*1216/s,
         );
         assert.match(componentsCss, /\.nd-style-card__cover--empty\s*\{/);
-        assert.match(componentsCss, /\.nd-style-card__cover-empty\s*\{[^}]*font-size:\s*var\(--nd-fs-xs\)/s);
+        assert.match(componentsCss, /\.nd-style-card__cover-empty\s*\{[^}]*font-size:\s*var\(--nd-fs-sm\)/s);
         card.destroy();
     });
 });

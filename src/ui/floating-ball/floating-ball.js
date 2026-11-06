@@ -4,14 +4,15 @@
  */
 
 import { isOk, isErr } from '../../infra/result.js';
-import { mergePluginSettings } from '../../domain/model/plugin-settings.js';
-import { createButton, createEmptyState, createToggle } from '../common/controls.js';
+import { mergePluginSettings, isQuickConfigItemVisible } from '../../domain/model/plugin-settings.js';
+import { createButton, createEmptyState, createTokenSelect } from '../common/controls.js';
 import { paintSafeCover } from '../common/safe-url.js';
+import { bindDebouncedInput } from '../common/debounced-input.js';
 import {
     artistMatchesModelFilter,
     createArtistModelTagFilter,
-    formatArtistModelTag,
 } from '../common/artist-model-tags.js';
+import { filterSortItems } from '../panels/_lib/library-logic.js';
 import { mountDrawer } from '../drawer/drawer.js';
 import {
     createGestureRecognizer,
@@ -26,13 +27,14 @@ import {
     deserializeFabPos,
     pixelToStored,
     serializeFabPos,
-    snapToNearestEdge,
     storedToPixel,
+    clamp,
     clampToViewport,
+    freePlace,
 } from './position.js';
 
 /** 球直径（px）；触控目标 ≥44 */
-export const FAB_SIZE_PX = 48;
+export const FAB_SIZE_PX = 40;
 
 /** 浮层最大宽度 */
 const PANEL_MAX_WIDTH = 360;
@@ -62,8 +64,9 @@ const BUSY_POLL_MS = 500;
  * @property {(fn: () => void) => () => void} [subscribeSettings]
  * @property {object} repos
  *   至少含 `artist`；其余字段原样传给 `mountDrawer`。
+ * @property {(fn: () => void) => (() => void)|void} [onSettingsChange]
+ *   只给悬浮球自己用：设置变了就重读 hideFloatingBall（常规设置里改了立刻生效）。不传给抽屉。
  * @property {() => void|Promise<void>} openManagement
- * @property {() => void|Promise<void>} openWorkbench
  * @property {() => Promise<{ ok: true, value: GenerateFloorSummary } | { ok: false, error: unknown }>} generateFloor
  * @property {() => boolean} [isFloorBusy]
  * @property {(level: 'success'|'error'|'info'|'warning'|string, message: string) => void} toast
@@ -117,8 +120,8 @@ function createPaletteIcon() {
         svg = /** @type {HTMLElement} */ (document.createElement('svg'));
     }
     svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('width', '22');
-    svg.setAttribute('height', '22');
+    svg.setAttribute('width', '20');
+    svg.setAttribute('height', '20');
     svg.setAttribute('aria-hidden', 'true');
     svg.setAttribute('class', 'nd-fab__icon');
 
@@ -208,6 +211,11 @@ function readRect(el) {
  * @returns {{ w: number, h: number }}
  */
 function viewportSize() {
+    // iPhone Safari：地址栏 / 键盘收放时 innerHeight 不准，优先用 visualViewport
+    const vv = typeof window !== 'undefined' ? /** @type {any} */ (window).visualViewport : null;
+    if (vv && Number(vv.width) > 0 && Number(vv.height) > 0) {
+        return { w: Number(vv.width), h: Number(vv.height) };
+    }
     const w =
         (typeof window !== 'undefined' && Number(window.innerWidth)) ||
         (typeof globalThis !== 'undefined' && Number(/** @type {any} */ (globalThis).innerWidth)) ||
@@ -297,8 +305,8 @@ export function mountFloatingBall(root, deps) {
     let openPanel = 'none';
     /** @type {{ destroy: () => void }|null} */
     let drawerHandle = null;
-    /** @type {{ destroy: () => void }|null} */
-    let hideBallToggle = null;
+    /** @type {(() => void)|null} 浮层关闭时的额外清理（如令牌下拉框的全局监听） */
+    let panelCleanup = null;
     /** @type {HTMLElement|null} */
     let panelEl = null;
     /** @type {Map<string, string|null>} itemId → 已过白名单的 src（或 null 占位） */
@@ -314,6 +322,13 @@ export function mountFloatingBall(root, deps) {
     let pos = defaultFabPos(FAB_SIZE_PX, viewportSize().w, viewportSize().h);
 
     const stored = deserializeFabPos(storageGet(storage, FAB_POS_STORAGE_KEY));
+    /** 最近一次存下的位置记录；窗口尺寸变化时按它的比例重算（0.2.46 不再吸边） */
+    let lastStored = stored;
+    /**
+     * 拖动期间锁定浮层在球的哪一侧、向上还是向下展开，避免拖过中线时跳边。
+     * @type {{ side: 'left'|'right', preferBelow: boolean }|null}
+     */
+    let placementLock = null;
     if (stored) {
         const restored = storedToPixel(stored, FAB_SIZE_PX, viewportSize().w, viewportSize().h);
         if (restored) pos = restored;
@@ -348,8 +363,27 @@ export function mountFloatingBall(root, deps) {
      * @returns {void}
      */
     function persistPos() {
-        const storedPos = pixelToStored(pos, FAB_SIZE_PX, viewportSize().h);
-        storageSet(storage, FAB_POS_STORAGE_KEY, serializeFabPos(storedPos));
+        const { w, h } = viewportSize();
+        const storedPos = pixelToStored(pos, FAB_SIZE_PX, h, w);
+        lastStored = /** @type {any} */ (storedPos);
+        storageSet(storage, FAB_POS_STORAGE_KEY, serializeFabPos(/** @type {any} */ (storedPos)));
+    }
+
+    /**
+     * 锁定当前浮层的展开方向（浮层打开时才有意义）。
+     * @returns {void}
+     */
+    function lockPlacement() {
+        if (placementLock || !panelEl) return;
+        const { h } = viewportSize();
+        let preferBelow = pos.y + FAB_SIZE_PX / 2 < h / 2;
+        try {
+            const pr = readRect(panelEl);
+            if (pr.height > 0) preferBelow = pr.top >= pos.y - 1;
+        } catch {
+            // ignore
+        }
+        placementLock = { side: pos.side, preferBelow };
     }
 
     applyBallPos();
@@ -375,6 +409,15 @@ export function mountFloatingBall(root, deps) {
     }
 
     applyBallHidden(readBallHidden());
+
+    /** @type {(() => void)|null} */
+    let unsubHidden = null;
+    if (typeof deps.onSettingsChange === 'function') {
+        const unsub = deps.onSettingsChange(() => {
+            if (!destroyed) applyBallHidden(readBallHidden());
+        });
+        if (typeof unsub === 'function') unsubHidden = unsub;
+    }
 
     /**
      * @param {boolean} busy
@@ -416,14 +459,6 @@ export function mountFloatingBall(root, deps) {
      * @returns {void}
      */
     function closePanels() {
-        if (hideBallToggle) {
-            try {
-                hideBallToggle.destroy();
-            } catch {
-                // ignore
-            }
-            hideBallToggle = null;
-        }
         if (drawerHandle) {
             try {
                 drawerHandle.destroy();
@@ -432,11 +467,23 @@ export function mountFloatingBall(root, deps) {
             }
             drawerHandle = null;
         }
+        if (panelCleanup) {
+            try {
+                panelCleanup();
+            } catch {
+                // ignore
+            }
+            panelCleanup = null;
+        }
+        unwatchPanelSize();
         if (panelEl) {
             panelEl.remove();
             panelEl = null;
         }
         openPanel = 'none';
+        placementLock = null;
+        // 0.2.47：浮层关掉后球回来；是否真的显示仍由 hideFloatingBall（nd-fab--hidden）决定
+        ball.classList.remove('nd-fab--as-panel');
     }
 
     /**
@@ -445,7 +492,14 @@ export function mountFloatingBall(root, deps) {
      */
     function placePanel(panel) {
         const { w: vw, h: vh } = viewportSize();
-        const br = ball.classList.contains('nd-fab--hidden')
+        // 0.2.48：浮层可贴满视口四边，不再让出酒馆顶栏
+        // 先撤掉上次写的 maxHeight 再量，量到的是内容自然高度（CSS 里仍有 100vh 上限）
+        let measured = 0;
+        if (panel.isConnected && typeof panel.getBoundingClientRect === 'function') {
+            panel.style.maxHeight = '';
+            measured = Number(panel.getBoundingClientRect().height) || 0;
+        }
+        const br = ball.classList.contains('nd-fab--hidden') || ball.classList.contains('nd-fab--as-panel')
             ? {
                 left: pos.x,
                 top: pos.y,
@@ -458,16 +512,52 @@ export function mountFloatingBall(root, deps) {
             ballTop: br.top,
             ballRight: br.right,
             ballBottom: br.bottom,
-            side: pos.side,
+            side: placementLock ? placementLock.side : pos.side,
+            preferBelow: placementLock ? placementLock.preferBelow : undefined,
             viewportW: vw,
             viewportH: vh,
             panelWidth: PANEL_MAX_WIDTH,
+            panelHeight: measured > 0 ? measured : undefined,
+            minTop: 0,
+            margin: 0,
+            anchor: 'corner',
         });
         panel.style.left = `${placed.left}px`;
         panel.style.top = `${placed.top}px`;
         panel.style.width = `${placed.width}px`;
         panel.style.maxWidth = `${placed.width}px`;
         panel.style.maxHeight = `${placed.maxHeight}px`;
+    }
+
+    /** @type {ResizeObserver|null} */
+    let panelResizeObserver = null;
+    let replaceRaf = 0;
+
+    /** 浮层尺寸 / 视口变化时按实测高度重新贴球（合并到下一帧，避免和 ResizeObserver 互相触发） */
+    function schedulePlace() {
+        if (replaceRaf || destroyed || !panelEl) return;
+        const raf = typeof requestAnimationFrame === 'function'
+            ? requestAnimationFrame
+            : (fn) => setTimeout(fn, 0);
+        replaceRaf = raf(() => {
+            replaceRaf = 0;
+            if (!destroyed && panelEl) placePanel(panelEl);
+        }) || 1;
+    }
+
+    function watchPanelSize(panel) {
+        unwatchPanelSize();
+        if (typeof ResizeObserver === 'function') {
+            panelResizeObserver = new ResizeObserver(() => schedulePlace());
+            panelResizeObserver.observe(panel);
+        }
+    }
+
+    function unwatchPanelSize() {
+        if (panelResizeObserver) {
+            panelResizeObserver.disconnect();
+            panelResizeObserver = null;
+        }
     }
 
     /**
@@ -481,17 +571,11 @@ export function mountFloatingBall(root, deps) {
         panel.classList.add('nd-root', 'nd-fab-panel');
         if (kind === 'config') panel.classList.add('nd-fab-panel--config');
         if (kind === 'artist') panel.classList.add('nd-fab-panel--artist');
+        // 0.2.47：球变成浮层，两者不同时出现；无展开动画
+        ball.classList.add('nd-fab--as-panel');
         root.appendChild(panel);
         placePanel(panel);
-        const raf =
-            typeof requestAnimationFrame === 'function'
-                ? requestAnimationFrame
-                : (fn) => setTimeout(fn, 0);
-        raf(() => {
-            if (!destroyed && panelEl === panel) {
-                panel.classList.add('nd-fab-panel--open');
-            }
-        });
+        watchPanelSize(panel);
     }
 
     /**
@@ -505,15 +589,17 @@ export function mountFloatingBall(root, deps) {
         const panel = el('div', 'nd-fab-panel__shell');
         const head = el('div', 'nd-fab-panel__head');
         const title = el('h3', 'nd-fab-panel__title');
-        setText(title, '配置');
+        setText(title, '快捷配置');
         head.appendChild(title);
+        bindPanelHeadDrag(head);
 
         const body = el('div', 'nd-fab-panel__body');
         const footer = el('div', 'nd-fab-panel__footer');
 
+        footer.classList.add('nd-fab-panel__footer--single');
         const managementBtn = createButton({
-            label: '打开管理台',
-            variant: 'ghost',
+            label: '管理台',
+            variant: 'primary',
             onClick: () => {
                 closePanels();
                 if (typeof deps.openManagement === 'function') {
@@ -521,31 +607,13 @@ export function mountFloatingBall(root, deps) {
                 }
             },
         });
-        const workbenchBtn = createButton({
-            label: '打开工作台',
-            variant: 'primary',
-            onClick: () => {
-                closePanels();
-                if (typeof deps.openWorkbench === 'function') {
-                    void Promise.resolve(deps.openWorkbench()).catch(() => undefined);
-                }
-            },
-        });
-        const hideToggle = createToggle({
-            label: '隐藏悬浮球',
-            hint: '关掉后从快捷回复栏进入',
-            checked: readBallHidden(),
-            onChange: (on) => {
-                const current = deps.loadSettings();
-                deps.saveSettings(mergePluginSettings(current, { hideFloatingBall: on }));
-                applyBallHidden(on);
-            },
-        });
-        footer.append(hideToggle.el, managementBtn, workbenchBtn);
+        footer.append(managementBtn);
+        const emptyNote = el('p', 'nd-muted nd-fab-panel__empty');
+        setText(emptyNote, '快速配置内容已全部隐藏，可在管理台—常规设置中恢复');
+        emptyNote.hidden = true;
 
-        panel.append(head, body, footer);
+        panel.append(head, body, emptyNote, footer);
         openOverlay('config', panel);
-        hideBallToggle = hideToggle;
 
         drawerHandle = mountDrawer(body, {
             loadSettings: deps.loadSettings,
@@ -553,6 +621,13 @@ export function mountFloatingBall(root, deps) {
             subscribeSettings: deps.subscribeSettings,
             repos: deps.repos || {},
             artistFileUrl: deps.artistFileUrl,
+            onVisibilityApplied: (anyVisible) => {
+                const showMgmt = isQuickConfigItemVisible(deps.loadSettings?.(), 'management');
+                managementBtn.hidden = !showMgmt;
+                footer.hidden = !showMgmt;
+                body.hidden = !anyVisible;
+                emptyNote.hidden = anyVisible || showMgmt;
+            },
             openManagementShell: () => {
                 closePanels();
                 if (typeof deps.openManagement === 'function') {
@@ -625,8 +700,42 @@ export function mountFloatingBall(root, deps) {
         setText(title, '切换画师串');
         head.appendChild(title);
 
+        // 0.2.47：排序与画师串库共用 nai-dbgen:artist-sort
+        const ARTIST_SORT_KEY = 'nai-dbgen:artist-sort';
+        const sortChoices = [
+            ['sequence-asc', '排序号'],
+            ['sequence-desc', '排序号倒序'],
+            ['name-asc', '名称'],
+            ['name-desc', '名称倒序'],
+            ['updated-desc', '最近更新'],
+        ];
+        let sort = 'sequence-asc';
+        try {
+            const raw = storageGet(storage, ARTIST_SORT_KEY);
+            if (raw && sortChoices.some(([v]) => v === raw)) sort = raw;
+        } catch {
+            // ignore
+        }
+        // 0.2.48：令牌下拉框，和搜索框并排
+        const sortSelect = createTokenSelect({
+            options: sortChoices.map(([value, label]) => ({ value, label })),
+            value: sort,
+            ariaLabel: '排序',
+            className: 'nd-fab-panel__sort',
+            onChange: (v) => {
+                sort = sortChoices.some(([c]) => c === v) ? v : 'sequence-asc';
+                try {
+                    storageSet(storage, ARTIST_SORT_KEY, sort);
+                } catch {
+                    // ignore
+                }
+                renderList();
+            },
+        });
+
+        const searchRow = el('div', 'nd-fab-panel__search-row');
         const searchWrap = el('div', 'nd-search-field nd-fab-panel__search');
-        const search = /** @type {HTMLInputElement} */ (el('input', 'nd-input'));
+        const search = /** @type {HTMLInputElement} */ (document.createElement('input'));
         search.type = 'search';
         search.placeholder = '搜索画师串';
         search.setAttribute('aria-label', '搜索画师串');
@@ -639,7 +748,8 @@ export function mountFloatingBall(root, deps) {
         const tagFilter = createArtistModelTagFilter({
             onChange: () => renderList(),
         });
-        panel.append(head, searchWrap, tagFilter.el, body);
+        searchRow.append(searchWrap, sortSelect.el);
+        panel.append(head, searchRow, tagFilter.el, body);
 
         /** @type {object[]} */
         let allItems = [];
@@ -650,7 +760,10 @@ export function mountFloatingBall(root, deps) {
          */
         function renderList() {
             listHost.replaceChildren();
-            const filtered = filterArtists(allItems, search.value, tagFilter.getValue());
+            const filtered = filterSortItems(
+                filterArtists(allItems, search.value, tagFilter.getValue()),
+                { sort },
+            );
             if (allItems.length === 0) {
                 const go = createButton({
                     label: '去管理台添加',
@@ -693,9 +806,6 @@ export function mountFloatingBall(root, deps) {
                 const label = el('span', 'nd-fab-artist-card__name');
                 setText(label, name);
                 card.appendChild(label);
-                const tags = el('span', 'nd-fab-artist-card__tags');
-                setText(tags, formatArtistModelTag(item));
-                card.appendChild(tags);
                 card.addEventListener('click', (event) => {
                     event.preventDefault();
                     if (!id) return;
@@ -708,8 +818,12 @@ export function mountFloatingBall(root, deps) {
             }
         }
 
-        search.addEventListener('input', () => renderList());
+        // 浮层关掉后 input 随 panel 一起移除；定时器到点时面板已换就不再渲染
+        bindDebouncedInput(search, () => {
+            if (panelEl === panel && !destroyed) renderList();
+        });
         openOverlay('artist', panel);
+        panelCleanup = () => sortSelect.destroy();
 
         const repo = deps.repos?.artist;
         if (!repo || typeof repo.list !== 'function') {
@@ -789,7 +903,8 @@ export function mountFloatingBall(root, deps) {
             void openArtistPanel();
         },
         onDragStart: (x, y) => {
-            closePanels();
+            // 0.2.46：浮层打开时拖球不关浮层，锁定展开方向后跟着球重新定位
+            if (panelEl) lockPlacement();
             const br = readRect(ball);
             dragOffsetX = x - br.left;
             dragOffsetY = y - br.top;
@@ -799,16 +914,19 @@ export function mountFloatingBall(root, deps) {
             const { w, h } = viewportSize();
             const rawX = x - dragOffsetX;
             const rawY = y - dragOffsetY;
-            const clamped = clampToViewport(rawX, rawY, FAB_SIZE_PX, w, h);
+            const clamped = clampToViewport(rawX, rawY, FAB_SIZE_PX, w, h, 0);
             pos = { ...pos, x: clamped.x, y: clamped.y };
             applyBallPos();
+            if (panelEl) placePanel(panelEl);
         },
         onDragEnd: () => {
             ball.classList.remove('nd-fab--dragging');
             const { w, h } = viewportSize();
-            pos = snapToNearestEdge(pos.x, pos.y, FAB_SIZE_PX, w, h);
+            // 0.2.46：停在松手位置，只限制在视口内（0.2.48 可贴边）
+            pos = freePlace(pos.x, pos.y, FAB_SIZE_PX, w, h, 0);
             applyBallPos();
             persistPos();
+            if (panelEl) placePanel(panelEl);
         },
         options: {
             tapSlop: GESTURE_TAP_SLOP,
@@ -816,6 +934,75 @@ export function mountFloatingBall(root, deps) {
             doubleTapMs: GESTURE_DOUBLE_TAP_MS,
         },
     });
+
+    /**
+     * 0.2.46：按住快捷配置标题栏拖动，球跟着移动，浮层用 placePanel 贴着球。
+     * @param {HTMLElement} head
+     * @returns {void}
+     */
+    function bindPanelHeadDrag(head) {
+        head.classList.add('nd-fab-panel__head--drag');
+        head.style.touchAction = 'none';
+        /** @type {{ id: number, x0: number, y0: number, l: number, t: number, w: number, h: number }|null} */
+        let drag = null;
+        head.addEventListener('pointerdown', (event) => {
+            if (destroyed || !panelEl) return;
+            const e = /** @type {PointerEvent} */ (event);
+            if (typeof e.button === 'number' && e.button !== 0) return;
+            lockPlacement();
+            // 0.2.48：直接拖浮层本身（可贴满四边），球位置按锚定角反推
+            const pr = readRect(panelEl);
+            drag = {
+                id: typeof e.pointerId === 'number' ? e.pointerId : 0,
+                x0: e.clientX,
+                y0: e.clientY,
+                l: pr.left,
+                t: pr.top,
+                w: pr.width,
+                h: pr.height,
+            };
+            try {
+                if (typeof head.setPointerCapture === 'function' && typeof e.pointerId === 'number') {
+                    head.setPointerCapture(e.pointerId);
+                }
+            } catch {
+                // ignore
+            }
+            if (typeof e.preventDefault === 'function') e.preventDefault();
+        });
+        head.addEventListener('pointermove', (event) => {
+            if (!drag || destroyed) return;
+            const e = /** @type {PointerEvent} */ (event);
+            if (typeof e.pointerId === 'number' && e.pointerId !== drag.id) return;
+            const { w, h } = viewportSize();
+            const nl = clamp(drag.l + e.clientX - drag.x0, 0, Math.max(0, w - drag.w));
+            const nt = clamp(drag.t + e.clientY - drag.y0, 0, Math.max(0, h - drag.h));
+            if (panelEl) {
+                panelEl.style.left = `${nl}px`;
+                panelEl.style.top = `${nt}px`;
+            }
+            const side = placementLock ? placementLock.side : pos.side;
+            const below = placementLock ? placementLock.preferBelow : true;
+            const bx = side === 'right' ? nl + drag.w - FAB_SIZE_PX : nl;
+            const by = below ? nt : nt + drag.h - FAB_SIZE_PX;
+            const c = clampToViewport(bx, by, FAB_SIZE_PX, w, h, 0);
+            pos = { ...pos, x: c.x, y: c.y };
+            applyBallPos();
+            if (typeof e.preventDefault === 'function') e.preventDefault();
+        });
+        const end = (event) => {
+            if (!drag) return;
+            const e = /** @type {PointerEvent} */ (event);
+            if (typeof e.pointerId === 'number' && e.pointerId !== drag.id) return;
+            drag = null;
+            if (destroyed) return;
+            persistPos();
+            // 刷新 maxHeight；锚定角与球位置一致，浮层不会跳
+            if (panelEl) placePanel(panelEl);
+        };
+        head.addEventListener('pointerup', end);
+        head.addEventListener('pointercancel', end);
+    }
 
     /**
      * @param {Event} event
@@ -926,7 +1113,9 @@ export function mountFloatingBall(root, deps) {
     function onResize() {
         if (destroyed) return;
         const { w, h } = viewportSize();
-        pos = snapToNearestEdge(pos.x, pos.y, FAB_SIZE_PX, w, h);
+        // 0.2.46：按存下的比例重算，不再吸边
+        const restored = lastStored ? storedToPixel(lastStored, FAB_SIZE_PX, w, h) : null;
+        pos = restored || freePlace(pos.x, pos.y, FAB_SIZE_PX, w, h, 0);
         applyBallPos();
         if (panelEl) placePanel(panelEl);
     }
@@ -944,9 +1133,14 @@ export function mountFloatingBall(root, deps) {
         if (typeof event.preventDefault === 'function') event.preventDefault();
     });
 
+    const visualVp = typeof window !== 'undefined' ? /** @type {any} */ (window).visualViewport : null;
     if (typeof window !== 'undefined') {
         window.addEventListener('keydown', onKeyDown);
         window.addEventListener('resize', onResize);
+    }
+    if (visualVp && typeof visualVp.addEventListener === 'function') {
+        visualVp.addEventListener('resize', onResize);
+        visualVp.addEventListener('scroll', schedulePlace);
     }
     if (typeof document !== 'undefined') {
         document.addEventListener('pointerdown', onDocPointerDown, true);
@@ -966,6 +1160,12 @@ export function mountFloatingBall(root, deps) {
             if (destroyed) return;
             destroyed = true;
             closePanels();
+            try {
+                unsubHidden?.();
+            } catch {
+                // ignore
+            }
+            unsubHidden = null;
             gesture.destroy();
             if (busyPollTimer != null) {
                 clearInterval(busyPollTimer);
@@ -978,6 +1178,10 @@ export function mountFloatingBall(root, deps) {
             if (typeof window !== 'undefined') {
                 window.removeEventListener('keydown', onKeyDown);
                 window.removeEventListener('resize', onResize);
+            }
+            if (visualVp && typeof visualVp.removeEventListener === 'function') {
+                visualVp.removeEventListener('resize', onResize);
+                visualVp.removeEventListener('scroll', schedulePlace);
             }
             if (typeof document !== 'undefined') {
                 document.removeEventListener('pointerdown', onDocPointerDown, true);

@@ -25,7 +25,7 @@ describe('D70 single-layer popup chrome', () => {
     it('CSS: dialog.nd-popup 是唯一画皮容器；shell 无 background/border-radius/box-shadow', () => {
         assert.match(
             componentsCss,
-            /dialog\.nd-popup\.nd-root\s*,\s*dialog\.nd-native-dialog\.nd-root\s*\{[^}]*background:\s*#fffafd\s*!important/s,
+            /dialog\.nd-popup\.nd-root\s*,\s*dialog\.nd-native-dialog\.nd-root\s*\{[^}]*background:\s*var\(--nd-popup-bg\)\s*!important/s,
         );
         assert.match(
             componentsCss,

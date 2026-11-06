@@ -490,7 +490,7 @@ const NAI_PARAM_KEYS = new Set(Object.keys(defaultNaiParams()));
 /**
  * 4.14 合并：调用方**显式**传入的非法项 → Err；未传的项取 4.13，若对新模型不合法则回退默认。
  *
- * @param {import('../model/nai-params.js').NaiParams|object} base 运行配置 naiParams
+ * @param {import('../model/nai-params.js').NaiParams|object} base 出图参数 naiParams
  * @param {Record<string, unknown>|null|undefined} overrides 本次显式覆盖（含多传原生字段）
  * @returns {{
  *   ok: true,

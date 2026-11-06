@@ -9,8 +9,6 @@
 
 import { setLoadBanner } from './src/bootstrap/load-banner.js';
 
-setLoadBanner('酒馆数据库生图：脚本已加载，正在启动…', 'info');
-
 /** @type {Promise<void>|null} */
 let boot = null;
 
@@ -31,7 +29,7 @@ export function activate(opts) {
  * @returns {Promise<void>}
  */
 async function run(opts) {
-    setLoadBanner('酒馆数据库生图：正在启动…', 'info');
+    // 0.2.45：启动过程不再弹提示，只在失败时显示
     try {
         const mod = await import('./src/bootstrap/lifecycle.js');
         await mod.activate(opts);

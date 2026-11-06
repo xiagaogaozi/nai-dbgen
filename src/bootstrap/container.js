@@ -400,6 +400,7 @@ export async function createContainer(opts = {}) {
             oldRefs,
         ),
         makeCardImage,
+        loadSettings,
     };
     assertRequiredDeps('createArtistPreviewService', artistPreviewDeps, REQUIRED_APP_DEPS.createArtistPreviewService);
     const artistPreview = factories.createArtistPreviewService(artistPreviewDeps);

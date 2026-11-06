@@ -290,7 +290,7 @@ export function mountTagPanel(root, deps) {
                 },
             }),
         );
-        form.appendChild(actions);
+        (modal.footer || form).appendChild(actions);
     }
 
     /**
@@ -481,7 +481,7 @@ export function mountTagPanel(root, deps) {
                 },
             }),
         );
-        form.appendChild(actions);
+        (modal.footer || form).appendChild(actions);
     }
 
     /**

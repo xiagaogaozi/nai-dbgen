@@ -1,6 +1,6 @@
 /**
  * L4 应用层 · 图片缓存按张数上限裁剪（需求 4.17）。
- * 读运行配置上限 → imageRepo.trimToLimit → 通知 UI。
+ * 读常规设置上限 → imageRepo.trimToLimit → 通知 UI。
  */
 
 import { Ok, isErr } from '../infra/result.js';

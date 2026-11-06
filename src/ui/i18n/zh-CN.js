@@ -62,7 +62,7 @@ export const zhCN = Object.freeze({
     'nested.emptyParents': '还没有分组或库。',
     'nested.emptyChildren': '此组暂无条目。',
     'nested.expand': '展开',
-    'nested.collapse': '折叠',
+    'nested.collapse': '收起',
 });
 
 /**

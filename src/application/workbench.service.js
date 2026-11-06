@@ -139,7 +139,7 @@ async function writeFloorPrompt(deps, input, traceId) {
         return Err(configError({
             code: 'PROMPT_LLM_UNSET',
             message: '未选择提示词生成用的 LLM 配置',
-            hint: '请在运行配置中为「提示词生成」选定 LLM',
+            hint: '请在常规设置中为「提示词生成」选定 LLM',
             traceId,
         }));
     }
@@ -501,7 +501,7 @@ export function createWorkbenchService(deps) {
                 return Err(configError({
                     code: 'PROMPT_LLM_UNSET',
                     message: '未选择提示词生成用的 LLM 配置',
-                    hint: '请在运行配置中为「提示词生成」选定 LLM',
+                    hint: '请在常规设置中为「提示词生成」选定 LLM',
                     traceId,
                 }));
             }

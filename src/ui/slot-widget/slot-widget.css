@@ -33,11 +33,11 @@
     min-height: 36px;
     margin: 0;
     padding: 0 14px;
-    border: 1px solid #c13d75;
+    border: 1px solid var(--nd-accent, #c13d75);
     border-radius: 8px;
-    background: #c13d75;
-    color: #fff;
-    font-size: 14px;
+    background: var(--nd-accent, #c13d75);
+    color: var(--nd-on-accent, #fff);
+    font-size: var(--nd-fs-md, 12px);
     font-weight: 700;
     line-height: 1.2;
     cursor: pointer;

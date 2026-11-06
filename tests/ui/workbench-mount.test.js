@@ -599,6 +599,7 @@ describe('ui/workbench mountWorkbench', () => {
         for (const listener of input._listeners || []) {
             if (listener.type === 'input') listener.fn();
         }
+        await new Promise((r) => setTimeout(r, 320));
 
         const melon = rowByLabel('吃西瓜');
         const apple = rowByLabel('吃苹果');
@@ -613,6 +614,7 @@ describe('ui/workbench mountWorkbench', () => {
         for (const listener of input._listeners || []) {
             if (listener.type === 'input') listener.fn();
         }
+        await new Promise((r) => setTimeout(r, 320));
         assert.equal(melon.parentNode.hidden, false);
         assert.equal(apple.parentNode.hidden, false);
         assert.equal(camera.parentNode.hidden, false);
@@ -682,7 +684,7 @@ describe('ui/workbench mountWorkbench', () => {
         while (stack.length) {
             const node = stack.pop();
             if (!node) continue;
-            if (node.tagName === 'BUTTON' && node.textContent === '展开') expanders.push(node);
+            if (node.tagName === 'BUTTON' && node.getAttribute?.('aria-label') === '展开') expanders.push(node);
             if (Array.isArray(node.childNodes)) {
                 for (const child of node.childNodes) stack.push(child);
             }
@@ -707,7 +709,7 @@ describe('ui/workbench mountWorkbench', () => {
 
         const dietHead = rowByLabel('饮食').parentNode;
         const collapse = (dietHead.childNodes || []).find((node) => node.tagName === 'BUTTON');
-        assert.equal(collapse.textContent, '收起');
+        assert.equal(collapse.getAttribute('aria-label'), '收起');
         for (const listener of collapse._listeners || []) {
             if (listener.type === 'click') {
                 listener.fn({ preventDefault() {}, stopPropagation() {} });
@@ -717,7 +719,7 @@ describe('ui/workbench mountWorkbench', () => {
             dietHead.parentNode.childNodes.indexOf(dietHead) + 1
         ];
         assert.equal(dietBody.hidden, true);
-        assert.equal(collapse.textContent, '展开');
+        assert.equal(collapse.getAttribute('aria-label'), '展开');
 
         setChecked(rowByLabel('只看已勾选'), false);
         assert.equal(apple.parentNode.hidden, false);

@@ -4,7 +4,7 @@
  */
 import { Err } from '../infra/result.js';
 import { configError } from '../infra/errors.js';
-import { createArtist, nextArtistSequence } from '../domain/model/artist.js';
+import { ARTIST_MODEL_TAGS, createArtist, nextArtistSequence } from '../domain/model/artist.js';
 
 /**
  * @param {{
@@ -38,10 +38,11 @@ export function createWorkbenchArtistDraftService(deps) {
 
     return {
         /**
-         * @param {{ mode: 'update'|'create', artistId?: string|null, name: string, positivePrompt: string, negativePrompt: string, coverBlob?: Blob|null }} input
+         * @param {{ mode: 'update'|'create', artistId?: string|null, name: string, positivePrompt: string, negativePrompt: string, modelTag?: string, coverBlob?: Blob|null }} input
          */
         async save(input) {
             const name = String(input?.name ?? '').trim();
+            const modelTag = ARTIST_MODEL_TAGS.includes(String(input?.modelTag)) ? String(input.modelTag) : null;
             if (!name) {
                 return Err(configError({
                     code: 'WORKBENCH_ARTIST_NAME_REQUIRED',
@@ -79,6 +80,7 @@ export function createWorkbenchArtistDraftService(deps) {
                     name,
                     positivePrompt: String(input.positivePrompt ?? ''),
                     negativePrompt: String(input.negativePrompt ?? ''),
+                    ...(modelTag ? { modelTag } : {}),
                     updatedAt: now(),
                 };
             } else {
@@ -90,6 +92,7 @@ export function createWorkbenchArtistDraftService(deps) {
                     sequence: nextArtistSequence(Array.isArray(listed.value) ? listed.value : []),
                     positivePrompt: String(input.positivePrompt ?? ''),
                     negativePrompt: String(input.negativePrompt ?? ''),
+                    ...(modelTag ? { modelTag } : {}),
                 }, { id: idFn('ar'), now: createdAt });
             }
 

@@ -12,6 +12,8 @@ import { configError, domainError } from '../infra/errors.js';
 import { ARTIST_PREVIEW_SIZE, emptyNaiCaption } from '../domain/model/nai-params.js';
 import { nowIso } from '../infra/clock.js';
 import { abortErrIfNeeded } from './_helpers.js';
+import { boundModelForArtistTag } from '../domain/model/plugin-settings.js';
+import { resolveArtistModelTag } from '../domain/model/artist.js';
 
 /**
  * @typedef {object} ArtistPreviewDeps
@@ -19,6 +21,8 @@ import { abortErrIfNeeded } from './_helpers.js';
  * @property {import('../ports/repository.port.js').Repository<import('../domain/model/artist.js').ArtistString>} artistRepo
  * @property {(artistId: string, referenceBlob: Blob, cardBlob: Blob, oldRefs?: { referenceImageRef?: string|null, cardImageRef?: string|null }) => Promise<import('../infra/result.js').Ok<{ referenceImageRef: string, cardImageRef: string }>|import('../infra/result.js').Err<import('../infra/errors.js').AppError>>} savePreviewPair
  * @property {(blob: Blob) => Promise<Blob>} makeCardImage
+ * @property {() => import('../domain/model/plugin-settings.js').PluginSettings} [loadSettings]
+ *   0.2.46：开了「模型跟随模型版本」时，按画师串版本用绑定模型出预览；关了用当前模型。
  */
 
 /**
@@ -73,14 +77,21 @@ export function createArtistPreviewService(deps) {
             caption.v4_prompt.caption.base_caption = String(input.promptText ?? '');
             caption.v4_negative_prompt.caption.base_caption = String(input.negativeText ?? '');
 
+            /** @type {Record<string, unknown>} */
+            const params = {
+                width: ARTIST_PREVIEW_SIZE.width,
+                height: ARTIST_PREVIEW_SIZE.height,
+            };
+            const settings = typeof deps.loadSettings === 'function' ? deps.loadSettings() : null;
+            if (settings && settings.naiModelFollowsArtist !== false) {
+                params.model = boundModelForArtistTag(settings, resolveArtistModelTag(artist));
+            }
+
             const genR = await deps.imageGen.generate({
                 caption,
                 replaceCharacterKeywords: false,
                 artist,
-                params: {
-                    width: ARTIST_PREVIEW_SIZE.width,
-                    height: ARTIST_PREVIEW_SIZE.height,
-                },
+                params,
                 signal: input.signal,
             });
             if (!genR.ok) {

@@ -194,6 +194,7 @@ describe('workbench artist picker and inline status', () => {
         fire(ctx.input, 'focus');
         ctx.input.value = 'bet';
         fire(ctx.input, 'input');
+        await new Promise((r) => setTimeout(r, 320));
         const options = ctx.field.querySelectorAll('.nd-picker-option');
         assert.equal(options.length, 1);
         assert.equal(options[0].querySelector('strong').textContent, 'Beta');

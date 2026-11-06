@@ -7,14 +7,16 @@
 
 :is(#nai-dbgen-root, .nd-root) {
     /* 表层：照搬本地项目（D63），直接取值，不跟随宿主主题 */
-    --nd-bg: #fff7fb;
-    --nd-surface: #fffdfd;
-    --nd-surface-2: #fff0f6;
+    /* 0.2.49：相邻层级拉开色差（白 → 输入 → 底 → 内层） */
+    --nd-bg: #f8e6ee;
+    --nd-surface: #ffffff;
+    --nd-surface-2: #e9bfd1;
     --nd-text: #4b3040;
     --nd-muted: #7f5f70;
     --nd-soft: #735466;
-    --nd-line: rgba(123, 70, 96, 0.21);
-    --nd-line-strong: rgba(123, 70, 96, 0.36);
+    /* 0.2.47：日间与夜间同为无边框，层次靠底色深浅 + --nd-divider 分割线 */
+    --nd-line: transparent;
+    --nd-line-strong: transparent;
     --nd-shadow-c: rgba(123, 70, 96, 0.16);
 
     /* 身份层：家族基因，不跟主题变 */
@@ -69,14 +71,44 @@
     /* 开关轨/钮：照搬 styles.css .toggle-row i */
     --nd-toggle-track: #eadde4;
     --nd-toggle-knob: #a88e9c;
+    /* 0.2.47：开关尺寸（轨宽/高/内边距/圆钮直径），所有开关共用 */
+    --nd-toggle-w: 36px;
+    --nd-toggle-h: 20px;
+    --nd-toggle-pad: 2px;
+    --nd-toggle-knob-size: calc(var(--nd-toggle-h) - 2 * var(--nd-toggle-pad));
+    --nd-range-thumb: 15px;
     --nd-status-idle: color-mix(in srgb, var(--nd-muted) 45%, var(--nd-surface));
     /* 输入底：照搬 .prompt-input / select 的 #fff */
-    --nd-input-bg: #ffffff;
+    --nd-input-bg: #fbe9f0;
+    /* 快捷配置悬浮窗整体底色（0.2.47：取原内层颜色，去掉外圈） */
+    --nd-fab-panel-bg: var(--nd-input-bg);
     /* ghost 按钮 hover：照搬 .button-ghost:hover */
-    --nd-ghost-hover: #ffe5f0;
+    --nd-ghost-hover: #dfa9c0;
     /* picker option hover 边：照搬 #f0d1df */
     --nd-picker-hover-line: #f0d1df;
     --nd-serif: Georgia, "Songti SC", "Noto Serif SC", serif;
+    /* 0.2.45：原先写死在 components / floating-ball / panels 的颜色，夜间模式在 theme-dark.css 重定义 */
+    --nd-card-bg: #ffffff;
+    --nd-card-line: transparent;
+    --nd-chip-bg: rgba(255, 255, 255, 0.92);
+    --nd-chip-ring: transparent;
+    --nd-search-line: transparent;
+    /* 0.2.49：单边分割线全部去掉，两种模式一致 */
+    --nd-divider: transparent;
+    --nd-mark: rgba(186, 76, 125, 0.22);
+    --nd-mark-strong: rgba(186, 76, 125, 0.45);
+    --nd-clear-fg: #a6406c;
+    --nd-heading: #5f3d4d;
+    --nd-thumb-grad: linear-gradient(145deg, #f9d7e6, #f0e2fa);
+    --nd-cover-grad: linear-gradient(145deg, #fff2f7, #fff);
+    --nd-cover-mark: rgba(186, 76, 125, 0.2);
+    --nd-test-cover-line: #efd7e2;
+    --nd-test-cover-grad: linear-gradient(145deg, #fff0f6, #f5e9ff);
+    --nd-test-cover-fg: #dca5bd;
+    --nd-img-bg: #fff8fb;
+    --nd-popup-bg: #fffafd;
+    --nd-backdrop: rgba(52, 24, 38, 0.45);
+    --nd-float-shadow: rgba(119, 57, 86, 0.16);
 
     /*
      * 字号令牌（D64）：全部从 --mainFontSize 直算，禁止嵌套 em 累乘。

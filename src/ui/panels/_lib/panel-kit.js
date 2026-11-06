@@ -404,22 +404,26 @@ export async function openImportExportModal(deps, title, expectedKind, importJso
  * @param {object} deps
  * @param {string} title
  * @param {HTMLElement} formEl
- * @returns {Promise<{ destroy: () => void, setError: (msg: string) => void }>}
+ * @returns {Promise<{ destroy: () => void, setError: (msg: string) => void, footer: HTMLElement }>}
  */
 export async function openFormModal(deps, title, formEl) {
     const wrap = el('div', 'nd-form-modal');
     const err = createInlineError();
     wrap.append(err.el, formEl);
+    // 0.2.45：按钮行放进固定底栏（modal.footer），不随表单滚走
+    const footer = el('div', 'nd-popup-footer');
     const modal = await openModal(
         { host: deps?.host },
         {
             title,
             element: wrap,
+            footer,
             wide: true,
             allowVerticalScrolling: true,
         },
     );
     return {
+        footer,
         destroy() {
             err.destroy();
             modal.destroy();

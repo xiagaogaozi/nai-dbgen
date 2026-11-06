@@ -110,10 +110,7 @@ export function mountArtistPanel(root, deps) {
                 ...item,
                 coverUrl: cover || '',
                 __active: isActive,
-                __chips: [
-                    ...(isActive ? ['当前使用'] : []),
-                    resolveArtistModelTag(item),
-                ],
+                __chips: isActive ? ['当前使用'] : [],
             });
         }
         return out;
@@ -125,6 +122,8 @@ export function mountArtistPanel(root, deps) {
      *   getSelectedIds: () => string[],
      *   selectVisible: () => void,
      *   clearSelection: () => void,
+     *   setSelectionMode: (on: boolean) => void,
+     *   isSelectionMode: () => boolean,
      * }|null} */
     let view = null;
 
@@ -155,19 +154,144 @@ export function mountArtistPanel(root, deps) {
         btn.disabled = true;
         return btn;
     });
-    const bulkBar = el('div', 'nd-artist-bulk');
-    bulkBar.append(selectAllBtn, clearSelectBtn, deleteSelectedBtn, ...switchTagBtns, bulkCount);
+    const batchPreviewBtn = createButton({
+        label: '生成预览图',
+        variant: 'primary',
+        onClick: () => {
+            if (batchAbort) {
+                batchAbort.abort();
+                return;
+            }
+            void runBatchPreview();
+        },
+    });
+    batchPreviewBtn.disabled = true;
+    // 0.2.47：批量按钮并入版本筛选行（与 全部/v4.5/v5 同行同尺寸），“已选 N”放到“共 N 条”旁边
+    const bulkBtns = [selectAllBtn, clearSelectBtn, deleteSelectedBtn, ...switchTagBtns, batchPreviewBtn];
+    for (const btn of bulkBtns) btn.classList.add('nd-artist-bulk__btn');
+    const bulkSep = el('span', 'nd-artist-filter-row__sep');
+    bulkSep.setAttribute('aria-hidden', 'true');
+    const bulkParts = [bulkSep, ...bulkBtns, bulkCount];
+    /** @param {boolean} on */
+    const showBulk = (on) => {
+        for (const node of bulkParts) node.hidden = !on;
+    };
+    showBulk(false);
+
+    /** @type {AbortController|null} 批量生成预览图的队列；非空即在跑 */
+    let batchAbort = null;
+    let selectedCount = 0;
+
+    const selectModeBtn = createButton({
+        label: '选择',
+        variant: 'ghost',
+        onClick: () => {
+            const next = !(view?.isSelectionMode() ?? false);
+            view?.setSelectionMode(next);
+            showBulk(next);
+            setText(selectModeBtn, next ? '完成' : '选择');
+            selectModeBtn.setAttribute('aria-pressed', next ? 'true' : 'false');
+        },
+    });
+    selectModeBtn.setAttribute('aria-pressed', 'false');
 
     /**
      * @param {string[]} ids
      */
     function syncBulk(ids) {
         const count = ids.length;
+        selectedCount = count;
         setText(bulkCount, `已选 ${count}`);
         const idle = count === 0;
         deleteSelectedBtn.disabled = idle;
         for (const btn of switchTagBtns) btn.disabled = idle;
+        if (!batchAbort) batchPreviewBtn.disabled = idle;
     }
+
+    /**
+     * 勾选的画师串逐条生成预览图（串行；失败跳过；可停止）。
+     */
+    async function runBatchPreview() {
+        if (batchAbort) return;
+        if (!previewSvc || typeof previewSvc.preview !== 'function') {
+            toast(host, 'error', '预览出图不可用，请刷新后重试');
+            return;
+        }
+        const prompts = readArtistPreviewPrompts();
+        if (!String(prompts.promptText ?? '').trim()) {
+            toast(host, 'warning', '请先在编辑界面填写预览提示词');
+            return;
+        }
+        const picked = new Set(view?.getSelectedIds() || []);
+        if (!picked.size) {
+            toast(host, 'warning', '请先勾选画师串');
+            return;
+        }
+        // 按当前列表（可见卡片）顺序排队
+        const order = view?.getVisibleIds?.() || [];
+        const queue = order.filter((id) => picked.has(id));
+        for (const id of picked) if (!queue.includes(id)) queue.push(id);
+        const ok = await confirmAsk(deps, {
+            title: '批量生成预览图',
+            message: `将逐条生成 ${queue.length} 张，每张消耗 Anlas。`,
+            okLabel: '开始生成',
+            cancelLabel: '取消',
+            okVariant: 'primary',
+        });
+        if (!ok || destroyed || batchAbort) return;
+
+        const all = await awaitRepo(host, repo.list(), '读取画师串失败') || [];
+        const nameById = new Map(all.map((row) => [String(row.id), String(row?.name ?? row.id)]));
+        const controller = new AbortController();
+        batchAbort = controller;
+        batchPreviewBtn.disabled = false;
+        let success = 0;
+        /** @type {string[]} */
+        const failedNames = [];
+        try {
+            for (let i = 0; i < queue.length; i += 1) {
+                if (controller.signal.aborted) break;
+                setText(batchPreviewBtn, `停止（${i + 1}/${queue.length}）`);
+                const id = queue[i];
+                let result;
+                try {
+                    result = await previewSvc.preview({
+                        artistId: id,
+                        promptText: prompts.promptText,
+                        negativeText: prompts.negativeText,
+                        saveAsPreview: true,
+                        signal: controller.signal,
+                    });
+                } catch (error) {
+                    result = { ok: false, error };
+                }
+                if (controller.signal.aborted) break;
+                if (result?.ok) {
+                    success += 1;
+                    await view?.refresh();
+                } else {
+                    failedNames.push(nameById.get(id) || id);
+                }
+            }
+        } finally {
+            const stopped = controller.signal.aborted;
+            batchAbort = null;
+            if (!destroyed) {
+                setText(batchPreviewBtn, '生成预览图');
+                batchPreviewBtn.disabled = selectedCount === 0;
+                const parts = [`成功 ${success} 条`];
+                if (failedNames.length) {
+                    const more = failedNames.length > 3 ? '…' : '';
+                    parts.push(`失败 ${failedNames.length} 条：${failedNames.slice(0, 3).join('、')}${more}`);
+                }
+                if (stopped) parts.push('已中途停止');
+                toast(host, failedNames.length || stopped ? 'warning' : 'success', `批量生成预览图：${parts.join('，')}`);
+            }
+        }
+    }
+    cleanups.push(() => {
+        batchAbort?.abort();
+    });
 
     const tagFilter = createArtistModelTagFilter({
         onChange: (tag) => {
@@ -176,6 +300,25 @@ export function mountArtistPanel(root, deps) {
         },
     });
 
+    const filterRow = el('div', 'nd-artist-filter-row');
+    filterRow.append(tagFilter.el, bulkSep, ...bulkBtns);
+
+    // 0.2.46：记住画师串库排序（切标签、刷新后保留）
+    const ARTIST_SORT_KEY = 'nai-dbgen:artist-sort';
+    const artistSortOptions = [
+        { value: 'sequence-asc', label: '排序号' },
+        { value: 'sequence-desc', label: '排序号倒序' },
+        { value: 'name-asc', label: '名称' },
+        { value: 'name-desc', label: '名称倒序' },
+        { value: 'updated-desc', label: '最近更新' },
+    ];
+    let savedSort = 'sequence-asc';
+    try {
+        const raw = globalThis.localStorage?.getItem(ARTIST_SORT_KEY);
+        if (raw && artistSortOptions.some((o) => o.value === raw)) savedSort = raw;
+    } catch {
+        // localStorage 不可用时用默认排序
+    }
     view = mountLibraryView(shell, {
         list: listWithActive,
         onCreate: () => void openEditor(null),
@@ -186,17 +329,23 @@ export function mountArtistPanel(root, deps) {
         onCoverClick: (item) => void openFullImage(item),
     }, {
         cover: true,
-        defaultSort: 'sequence-asc',
-        sortOptions: [
-            { value: 'sequence-asc', label: '排序号' },
-            { value: 'sequence-desc', label: '排序号倒序' },
-            { value: 'name-asc', label: '名称' },
-            { value: 'name-desc', label: '名称倒序' },
-            { value: 'updated-desc', label: '最近更新' },
-        ],
-        filterBar: tagFilter.el,
-        bulkBar,
+        defaultSort: savedSort,
+        sortOptions: artistSortOptions,
+        onSortChange: (v) => {
+            try {
+                globalThis.localStorage?.setItem(ARTIST_SORT_KEY, String(v));
+            } catch {
+                // ignore
+            }
+        },
+        filterBar: filterRow,
+        statusExtra: bulkCount,
         selectable: true,
+        selectionMode: false,
+        toolbarLeading: [selectModeBtn],
+        cardActions: false,
+        openOnCardClick: true,
+        coverBadge: (item) => resolveArtistModelTag(item),
         onSelectionChange: syncBulk,
         searchKeys: ['name', 'positivePrompt', 'negativePrompt'],
         columns: [
@@ -329,8 +478,15 @@ export function mountArtistPanel(root, deps) {
             paintSafeCover(coverBox, url, item?.name ?? '', { emptyVariant: 'label' });
         })();
 
-        const form = el('div', 'nd-form');
-        form.append(nameField.el, modelTagField.el, positive.el, negative.el, coverBox, promptField.el, negPreview.el);
+        // 0.2.45：名称 / 模型版本 / 正向画师串在左，预览图在右上
+        const top = el('div', 'nd-artist-editor__top');
+        const topMain = el('div', 'nd-artist-editor__main');
+        topMain.append(nameField.el, modelTagField.el, positive.el);
+        const topSide = el('div', 'nd-artist-editor__side');
+        topSide.append(coverBox);
+        top.append(topMain, topSide);
+        const form = el('div', 'nd-form nd-artist-editor');
+        form.append(top, negative.el, promptField.el, negPreview.el);
         const err = createInlineError();
         form.appendChild(err.el);
 
@@ -452,6 +608,27 @@ export function mountArtistPanel(root, deps) {
         }
 
         const actions = el('div', 'nd-form__actions');
+        if (item?.id != null) {
+            const editingId = item.id;
+            actions.append(createButton({
+                label: '删除',
+                variant: 'danger',
+                onClick: async () => {
+                    const name = String(item?.name ?? '');
+                    const ok = await confirmDanger(deps, `删除画师串「${name}」？`);
+                    if (!ok) return;
+                    const removed = await awaitRepo(host, repo.remove(editingId), '删除失败');
+                    if (removed === null) return;
+                    const activeId = settings.load().activeArtistId;
+                    if (activeId != null && String(activeId) === String(editingId)) {
+                        settings.patch({ activeArtistId: null });
+                    }
+                    closeModal();
+                    toast(host, 'success', '已删除');
+                    await view?.refresh();
+                },
+            }));
+        }
         actions.append(
             createButton({ label: '取消', variant: 'ghost', onClick: () => closeModal() }),
             activateBtn,
@@ -469,7 +646,7 @@ export function mountArtistPanel(root, deps) {
                 },
             }),
         );
-        form.appendChild(actions);
+        (modal.footer || form).appendChild(actions);
     }
 
     /**
@@ -570,6 +747,10 @@ export function mountArtistPanel(root, deps) {
     }
 
     return {
+        /** 常驻标签重新显示时刷新（其他地方可能改过数据）。 */
+        onShow() {
+            if (!destroyed) void view?.refresh();
+        },
         destroy() {
             if (destroyed) return;
             destroyed = true;

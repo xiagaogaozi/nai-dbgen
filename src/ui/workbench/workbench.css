@@ -70,7 +70,7 @@
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-wb-source__empty {
-    font-size: var(--nd-fs-base);
+    font-size: var(--nd-fs-md);
     line-height: 1.4;
     white-space: nowrap;
 }
@@ -168,6 +168,18 @@
     display: flex;
     align-items: center;
     gap: 0.45em;
+}
+
+/* 0.2.49：库/分类的展开按钮改成正方形 */
+:is(#nai-dbgen-root, .nd-root) :is(.nd-wb-lib__head, .nd-wb-cat__head) .nd-mini-action {
+    width: var(--nd-h-micro) !important;
+    min-width: var(--nd-h-micro) !important;
+    height: var(--nd-h-micro) !important;
+    min-height: var(--nd-h-micro) !important;
+    padding: 0 !important;
+    display: inline-grid;
+    place-items: center;
+    flex: 0 0 auto;
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-wb-lib__body,
@@ -347,21 +359,7 @@
     cursor: not-allowed;
 }
 
-/* Workbench alone fills the viewport; other library and editor dialogs retain their chrome. */
-dialog.nd-popup.nd-root.nd-workbench-popup.large_dialogue_popup {
-    width: calc(100vw - 24px);
-    max-width: calc(100vw - 24px);
-    height: calc(100dvh - 24px);
-    max-height: calc(100dvh - 24px);
-}
-.nd-workbench-popup .nd-popup-scroll,
-.nd-workbench-popup .nd-popup-scroll > .nd-root {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    overflow: hidden;
-    flex: 1 1 auto;
-}
+/* 0.2.43：工作台并入管理台标签页；弹窗尺寸由 .nd-manager-popup 负责 */
 :is(#nai-dbgen-root, .nd-root) .nd-workbench {
     display: grid;
     grid-template-columns: minmax(265px, 20%) minmax(0, 1fr) minmax(270px, 23%);
@@ -442,14 +440,14 @@ dialog.nd-popup.nd-root.nd-workbench-popup.large_dialogue_popup {
     width: auto !important;
     min-width: 0;
 }
-:is(#nai-dbgen-root, .nd-root).nd-workbench-popup .nd-modal-title {
-    font-size: var(--nd-fs-base) !important;
+:is(#nai-dbgen-root, .nd-root).nd-manager-popup .nd-modal-title {
+    font-size: var(--nd-fs-title) !important;
 }
 :is(#nai-dbgen-root, .nd-root) .nd-wb-column--left > .nd-wb-params-details > summary {
-    font-size: var(--nd-fs-base);
+    font-size: var(--nd-fs-lg);
 }
 :is(#nai-dbgen-root, .nd-root) .nd-wb-section--secondary > .nd-field-group__title {
-    font-size: var(--nd-fs-base);
+    font-size: var(--nd-fs-lg);
 }
 :is(#nai-dbgen-root, .nd-root) .nd-wb-tertiary-label {
     font-size: var(--nd-fs-sm) !important;
@@ -464,7 +462,7 @@ dialog.nd-popup.nd-root.nd-workbench-popup.large_dialogue_popup {
 :is(#nai-dbgen-root, .nd-root) .nd-wb-market__title {
     flex: 1 1 auto;
     min-width: 0;
-    font-size: var(--nd-fs-base);
+    font-size: var(--nd-fs-lg);
     line-height: 1.25;
 }
 :is(#nai-dbgen-root, .nd-root) .nd-wb-market__actions {
@@ -496,7 +494,7 @@ dialog.nd-popup.nd-root.nd-workbench-popup.large_dialogue_popup {
 }
 :is(#nai-dbgen-root, .nd-root) .nd-wb-market__level-row + .nd-wb-market__level-row {
     padding-top: 6px;
-    border-top: 1px solid var(--nd-line);
+    border-top: 1px solid var(--nd-divider);
 }
 :is(#nai-dbgen-root, .nd-root) .nd-wb-market__empty {
     min-height: 0;
@@ -520,7 +518,7 @@ dialog.nd-popup.nd-root.nd-workbench-popup.large_dialogue_popup {
 :is(#nai-dbgen-root, .nd-root) .nd-wb-market__tabs { display: flex; flex-wrap: wrap; gap: 6px; }
 :is(#nai-dbgen-root, .nd-root) .nd-wb-market__tabs--categories {
     padding-top: 10px;
-    border-top: 1px solid var(--nd-line);
+    border-top: 1px solid var(--nd-divider);
 }
 :is(#nai-dbgen-root, .nd-root) .nd-wb-market__tab {
     width: auto !important;
@@ -556,7 +554,7 @@ dialog.nd-popup.nd-root.nd-workbench-popup.large_dialogue_popup {
     justify-content: center;
     gap: 3px;
     text-align: left;
-    background: var(--nd-surface) !important;
+    background: var(--nd-surface-2) !important;
 }
 :is(#nai-dbgen-root, .nd-root) .nd-wb-market__tag strong,
 :is(#nai-dbgen-root, .nd-root) .nd-wb-market__tag small {
@@ -568,7 +566,7 @@ dialog.nd-popup.nd-root.nd-workbench-popup.large_dialogue_popup {
     overflow-wrap: anywhere;
     word-break: break-word;
 }
-:is(#nai-dbgen-root, .nd-root) .nd-wb-market__tag small { color: var(--nd-muted); font-size: var(--nd-fs-xs); }
+:is(#nai-dbgen-root, .nd-root) .nd-wb-market__tag small { color: var(--nd-muted); font-size: var(--nd-fs-sm); }
 :is(#nai-dbgen-root, .nd-root) .nd-wb-market__tag.is-selected {
     background: var(--nd-accent-wash) !important;
     border-color: var(--nd-accent) !important;
@@ -607,8 +605,12 @@ dialog.nd-popup.nd-root.nd-workbench-popup.large_dialogue_popup {
     border-radius: var(--nd-radius-lg);
     background: var(--nd-surface);
 }
+/* 0.2.47：无边框，内层块用 surface-2 与外层 surface 区分 */
+:is(#nai-dbgen-root, .nd-root) .nd-wb-artist-slot {
+    background: var(--nd-surface-2);
+}
 :is(#nai-dbgen-root, .nd-root) .nd-wb-column--left > .nd-details {
     border: 1px solid var(--nd-line);
     border-radius: var(--nd-radius-lg);
-    background: var(--nd-surface);
+    background: var(--nd-surface-2);
 }

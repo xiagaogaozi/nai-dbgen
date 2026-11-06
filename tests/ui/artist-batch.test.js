@@ -93,6 +93,7 @@ describe('artist library batch version switch and delete', () => {
             artist({ id: 'a', name: '甲', sequence: 0, modelTag: 'v5', positivePrompt: 'keep-me' }),
         ]);
         await flush();
+        fire(buttonByText(root, '选择'), 'click');
 
         const boxes = checkboxes(root);
         assert.equal(boxes.length, 1);
@@ -123,6 +124,7 @@ describe('artist library batch version switch and delete', () => {
             artist({ id: 'b', name: '同名', sequence: 1, modelTag: 'v5' }),
         ]);
         await flush();
+        fire(buttonByText(root, '选择'), 'click');
 
         const boxes = checkboxes(root);
         boxes[0].checked = true;
@@ -142,6 +144,7 @@ describe('artist library batch version switch and delete', () => {
             artist({ id: 'b', name: '乙', sequence: 1, modelTag: 'v4.5' }),
         ]);
         await flush();
+        fire(buttonByText(root, '选择'), 'click');
 
         fire(buttonByText(root, '全选'), 'click');
         assert.equal(root.querySelector('.nd-artist-bulk__count').textContent, '已选 2');

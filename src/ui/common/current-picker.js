@@ -8,6 +8,7 @@
 
 import { t } from '../i18n/zh-CN.js';
 import { paintSafeCover } from './safe-url.js';
+import { bindDebouncedInput } from './debounced-input.js';
 import {
     artistMatchesModelFilter,
     createArtistModelTagFilter,
@@ -270,9 +271,9 @@ export function mountCurrentPicker(root, deps) {
         renderResults('');
     };
 
+    // 下拉立即打开；结果列表等停止输入后再筛
     const onInput = () => {
         setResultsOpen(true);
-        renderResults(input.value);
     };
 
     const onClear = (event) => {
@@ -292,6 +293,10 @@ export function mountCurrentPicker(root, deps) {
 
     input.addEventListener('focus', onFocus);
     input.addEventListener('input', onInput);
+    const searchDebounce = bindDebouncedInput(input, () => {
+        if (destroyed || !resultsOpen) return;
+        renderResults(input.value);
+    });
     clearBtn.addEventListener('click', onClear);
     document.addEventListener('pointerdown', onDocPointer);
 
@@ -304,6 +309,7 @@ export function mountCurrentPicker(root, deps) {
             destroyed = true;
             input.removeEventListener('focus', onFocus);
             input.removeEventListener('input', onInput);
+            searchDebounce.dispose();
             clearBtn.removeEventListener('click', onClear);
             document.removeEventListener('pointerdown', onDocPointer);
             tagFilter?.destroy();

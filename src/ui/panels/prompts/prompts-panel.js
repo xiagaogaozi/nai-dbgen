@@ -8,6 +8,7 @@
 import { createButton, createCheckbox, createEmptyState, createInlineError } from '../../common/controls.js';
 import { openSlotImageViewer } from '../../common/image-viewer.js';
 import { paintSafeCover } from '../../common/safe-url.js';
+import { bindDebouncedInput } from '../../common/debounced-input.js';
 import { latestSlotImage } from '../../../domain/model/slot.js';
 import { el, setText, toast, settingsApi } from '../_lib/panel-kit.js';
 import {
@@ -100,7 +101,8 @@ export function mountPromptsPanel(root, deps) {
 
     const searchWrap = el('div', 'nd-search-field nd-prompts-toolbar__search');
     /** @type {HTMLInputElement} */
-    const searchInput = /** @type {HTMLInputElement} */ (el('input', 'nd-input'));
+    // 0.2.48：和库工具栏一样用无类名 input，样式全由 .nd-search-field 提供
+    const searchInput = /** @type {HTMLInputElement} */ (document.createElement('input'));
     searchInput.type = 'search';
     searchInput.placeholder = '搜索生图提示词';
     searchInput.setAttribute('aria-label', '搜索生图提示词');
@@ -177,7 +179,7 @@ export function mountPromptsPanel(root, deps) {
         });
     }
 
-    searchInput.addEventListener('input', () => {
+    const searchDebounce = bindDebouncedInput(searchInput, () => {
         if (destroyed) return;
         paintList(filteredGroups());
     });
@@ -452,6 +454,7 @@ export function mountPromptsPanel(root, deps) {
             if (destroyed) return;
             destroyed = true;
             loadGen += 1;
+            searchDebounce.dispose();
             shell.remove();
         },
         refresh,

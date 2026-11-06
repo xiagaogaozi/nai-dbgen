@@ -177,7 +177,7 @@ export function createGenerateSlotsUseCase(deps) {
                 llmCallCount += tagR.value.llmCallCount ?? 1;
             }
 
-            const positions = tagR.value.positions ?? [];
+            let positions = tagR.value.positions ?? [];
             /** @type {string[]} */
             const unmatchedKeys = tagR.value.unmatchedKeys ?? [];
             /** @type {string[]} */
@@ -192,6 +192,12 @@ export function createGenerateSlotsUseCase(deps) {
                     matchedCount: positions.reduce((n, p) => n + (p.entries?.length ?? 0), 0),
                     positionCount: positions.length,
                 });
+            }
+
+            // 0.2.45：每层楼最多生图数（-1 不限）；截断要在构图块和期望槽位之前
+            const maxPerFloor = Number(settings.maxImagesPerFloor);
+            if (Number.isInteger(maxPerFloor) && maxPerFloor >= 1 && positions.length > maxPerFloor) {
+                positions = positions.slice(0, maxPerFloor);
             }
 
             const compositionText = formatCompositionBlock(positions);
@@ -223,7 +229,7 @@ export function createGenerateSlotsUseCase(deps) {
                 return Err(configError({
                     code: 'PROMPT_LLM_UNSET',
                     message: '未选择提示词生成用的 LLM 配置',
-                    hint: '请在运行配置中为「提示词生成」选定 LLM',
+                    hint: '请在常规设置中为「提示词生成」选定 LLM',
                     traceId,
                 }));
             }

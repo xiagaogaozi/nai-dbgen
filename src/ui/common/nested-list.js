@@ -229,7 +229,10 @@ export function mountNestedList(root, deps) {
             const expandBtn = document.createElement('button');
             expandBtn.type = 'button';
             expandBtn.className = 'nd-nested-list__expand';
-            expandBtn.textContent = expanded ? '▾' : '▸';
+            const chevron = document.createElement('i');
+            chevron.className = `fa-solid ${expanded ? 'fa-chevron-up' : 'fa-chevron-down'}`;
+            chevron.setAttribute('aria-hidden', 'true');
+            expandBtn.replaceChildren(chevron);
             expandBtn.setAttribute(
                 'aria-label',
                 expanded ? t('nested.collapse') : t('nested.expand'),
@@ -265,6 +268,13 @@ export function mountNestedList(root, deps) {
             }
 
             block.appendChild(header);
+            // 0.2.48：点条目标题本身也能展开/收起；按钮、开关等交互控件除外
+            header.addEventListener('click', (e) => {
+                const target = /** @type {any} */ (e?.target);
+                if (target?.closest?.('button, input, label, a, select, textarea, .nd-toggle, .nd-toggle-row')) return;
+                writeExpanded(id, !readExpanded(id));
+                paint();
+            });
 
             const body = document.createElement('div');
             body.className = 'nd-nested-list__children';

@@ -226,7 +226,7 @@ export function mountCharacterPanel(root, deps) {
             createButton({ label: '取消', variant: 'ghost', onClick: () => modal.destroy() }),
             saveBtn,
         );
-        form.appendChild(actions);
+        (modal.footer || form).appendChild(actions);
     }
 
     /**
@@ -368,7 +368,7 @@ export function mountCharacterPanel(root, deps) {
                 },
             }),
         );
-        form.appendChild(actions);
+        (modal.footer || form).appendChild(actions);
     }
 
     /**

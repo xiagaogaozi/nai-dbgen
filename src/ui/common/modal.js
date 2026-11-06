@@ -17,7 +17,7 @@
 import { t } from '../i18n/zh-CN.js';
 
 /**
- * @param {{ title: string, element: Element, wide?: boolean, large?: boolean, allowVerticalScrolling?: boolean }} opts
+ * @param {{ title: string, element: Element, footer?: Element, wide?: boolean, large?: boolean, allowVerticalScrolling?: boolean }} opts
  * @returns {HTMLElement}
  */
 function buildRoot(opts) {
@@ -40,6 +40,11 @@ function buildRoot(opts) {
         scroll.appendChild(opts.element);
     }
     wrap.appendChild(scroll);
+    // 0.2.45：可选底栏，固定在滚动区下方（编辑弹窗的按钮行）
+    if (opts?.footer instanceof Element) {
+        opts.footer.classList.add('nd-popup-footer');
+        wrap.appendChild(opts.footer);
+    }
     return wrap;
 }
 
@@ -172,7 +177,10 @@ export function applyNdPopupChrome(dlg, opts = {}) {
         closeBtn = document.createElement('button');
         closeBtn.type = 'button';
         closeBtn.className = 'nd-native-dialog__close';
-        closeBtn.textContent = '×';
+        const closeIcon = document.createElement('i');
+        closeIcon.className = 'fa-solid fa-xmark';
+        if (typeof closeIcon.setAttribute === 'function') closeIcon.setAttribute('aria-hidden', 'true');
+        closeBtn.appendChild(closeIcon);
         if (typeof closeBtn.setAttribute === 'function') {
             closeBtn.setAttribute('aria-label', t('common.close'));
             closeBtn.setAttribute('data-nd-close', '1');
@@ -262,7 +270,7 @@ function openNativeDialog(contentRoot, title, dialogClass) {
 /**
  * @param {object} deps
  * @param {import('../../ports/host.port.js').HostPort} deps.host
- * @param {{ title: string, element: Element, wide?: boolean, large?: boolean, allowVerticalScrolling?: boolean, dialogClass?: string }} opts
+ * @param {{ title: string, element: Element, footer?: Element, wide?: boolean, large?: boolean, allowVerticalScrolling?: boolean, dialogClass?: string }} opts
  * @returns {Promise<{ destroy: () => void }>}
  */
 export async function openModal(deps, opts) {
@@ -274,7 +282,7 @@ export async function openModal(deps, opts) {
     }
 
     // 自建头部（标题 + 关闭槽）；宿主只挂节点，不再套裸 h3
-    const wrap = buildRoot({ title, element });
+    const wrap = buildRoot({ title, element, footer: opts?.footer });
     const dialogClass = opts?.dialogClass;
     /** @type {HTMLDialogElement|null} */
     let preparedDialog = null;

@@ -353,7 +353,7 @@ describe('ui/slot mountSlotWidget', () => {
         const btnBusy = btnOf(root);
         assert.equal(btnBusy.disabled, true);
         assert.equal(btnBusy.getAttribute('aria-busy'), 'true');
-        assert.match(String(btnBusy.textContent), /生图中/);
+        assert.match(String(btnBusy.textContent), /正在生图/);
 
         // 模拟 usecase：先清 inflight，再更新权威记录并发 SLOT_RENDERED
         rendering = false;
@@ -371,7 +371,7 @@ describe('ui/slot mountSlotWidget', () => {
         const btnDone = btnOf(root);
         assert.equal(btnDone.disabled, false);
         assert.equal(btnDone.getAttribute('aria-busy'), 'false');
-        assert.equal(String(btnDone.textContent).includes('生图中'), false);
+        assert.equal(String(btnDone.textContent).includes('正在生图'), false);
         handle.destroy();
     });
 

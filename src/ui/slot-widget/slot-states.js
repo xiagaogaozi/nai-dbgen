@@ -202,7 +202,7 @@ export function slotStateClass(state) {
 export function slotButtonLabel(state) {
     switch (state) {
         case 'generating':
-            return '生图中…';
+            return '正在生图…';
         case 'done':
             return t('slot.regenerate');
         case 'error':

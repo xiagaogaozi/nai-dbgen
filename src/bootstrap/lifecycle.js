@@ -22,17 +22,20 @@ import { createSlotMountObserver, findSlotInMessage } from '../adapters/host/slo
 import { GENERATE_INTERCEPTOR_GLOBAL_NAME } from '../adapters/host/generate-interceptor.js';
 import { mountFloatingBall, formatGenerateFloorToast } from '../ui/floating-ball/floating-ball.js';
 import { isOk } from '../infra/result.js';
-import { openPanelShell } from '../ui/panels/shell.js';
-import { mountWorkbench } from '../ui/workbench/workbench.js';
+import { openPanelShell, WORKBENCH_TAB_ID } from '../ui/panels/shell.js';
 import { mountSlotWidget } from '../ui/slot-widget/slot-widget.js';
-import { openModal } from '../ui/common/modal.js';
 import { removeDeletedSlotElements } from '../ui/slot-editor/slot-editor.js';
 import { installQuickReplyEntry } from './quick-reply-entry.js';
+import { applyTheme, clearTheme } from '../ui/common/theme.js';
+import { confirmAsk } from '../ui/panels/_lib/panel-kit.js';
+import { followModelForArtistTag } from '../domain/model/plugin-settings.js';
+import { resolveArtistModelTag } from '../domain/model/artist.js';
+import { reconcileParamsForModel } from '../domain/nai/param-options.js';
 
 const log = createLogger('bootstrap/lifecycle');
 
 /** @type {string} */
-export const PLUGIN_VERSION = '0.2.42';
+export const PLUGIN_VERSION = '0.2.49';
 
 /** @type {string} */
 export const PUBLIC_API_NAME = 'NaiDbGen';
@@ -83,8 +86,7 @@ const FLOOR_BUSY_POLL_MS = 200;
  * @property {(() => void)|null} unsubChatChanged
  * @property {(() => void)|null} unsubSlotRenderedCache
  * @property {(() => void)|null} unsubSlotsWrittenCache
- * @property {{ destroy: () => void }|null} panelShell
- * @property {{ destroy: () => void }|null} workbenchModal
+ * @property {{ destroy: () => void, activate?: (tabId: string) => void, isOpen?: () => boolean }|null} panelShell
  * @property {ReturnType<typeof setInterval>|null} floorBusyTimer
  * @property {boolean} activating
  * @property {boolean} slashRegistered
@@ -106,7 +108,6 @@ const runtime = {
     unsubSlotRenderedCache: null,
     unsubSlotsWrittenCache: null,
     panelShell: null,
-    workbenchModal: null,
     floorBusyTimer: null,
     activating: false,
     slashRegistered: false,
@@ -234,7 +235,7 @@ function exposePublicApi(container) {
          * 4.14 对外生图。replaceCharacterKeywords 必填，绝不推断（验收 #13/#14）。
          *
          * `params` 合并规则：
-         * - 未传字段用运行配置 4.13；若因换模型等导致继承项对新模型不合法 → 回退该模型默认，不报错。
+         * - 未传字段用出图参数 4.13；若因换模型等导致继承项对新模型不合法 → 回退该模型默认，不报错。
          * - 显式传入且与模型不匹配（非法模型 / 不支持的采样器·噪声·负面预设 / 宽高非 64 倍数 /
          *   该模型不支持的 Variety·CFG Rescale·透明底·SMEA 等）→ 返回
          *   `Err`（`DomainError`，code=`NAI_PARAMS_INVALID`），**不调用 NAI**。
@@ -363,6 +364,18 @@ function panelDeps(container) {
         artistFileUrl: container.artistFileUrl,
         newId,
         nowIso,
+        workbenchDeps: {
+            host: container.host,
+            workbenchService: container.services.workbench,
+            artistDraftService: container.services.workbenchArtistDraft,
+            tagRepo: container.repos.tag,
+            marketCatalogStore: container.marketCatalogStore,
+            artistRepo: container.repos.artist,
+            artistFileUrl: container.artistFileUrl,
+            loadSettings: container.loadSettings,
+            subscribeSettings: (fn) => container.settingsStore.onChange(fn),
+            imageRepo: container.repos.image,
+        },
     };
 }
 
@@ -372,6 +385,12 @@ function panelDeps(container) {
  * @returns {Promise<void>}
  */
 async function openManagementUi(container, initialTab) {
+    // 已开着：只切标签，不重建（保留工作台进行中的请求）
+    const open = runtime.panelShell;
+    if (open && typeof open.isOpen === 'function' && open.isOpen()) {
+        if (initialTab) open.activate?.(initialTab);
+        return;
+    }
     try {
         runtime.panelShell?.destroy();
     } catch {
@@ -381,61 +400,12 @@ async function openManagementUi(container, initialTab) {
 }
 
 /**
+ * 工作台已并入管理台：打开管理台并切到「生成工作台」标签。
  * @param {Awaited<ReturnType<typeof createContainer>>} container
  * @returns {Promise<void>}
  */
 async function openWorkbenchUi(container) {
-    try {
-        runtime.workbenchModal?.destroy();
-    } catch {
-        // ignore
-    }
-    if (typeof document === 'undefined') {
-        return;
-    }
-    const root = document.createElement('div');
-    root.className = 'nd-root';
-    const handle = mountWorkbench(root, {
-        host: container.host,
-        workbenchService: container.services.workbench,
-        artistDraftService: container.services.workbenchArtistDraft,
-        tagRepo: container.repos.tag,
-        marketCatalogStore: container.marketCatalogStore,
-        artistRepo: container.repos.artist,
-        artistFileUrl: container.artistFileUrl,
-        loadSettings: container.loadSettings,
-        subscribeSettings: (fn) => container.settingsStore.onChange(fn),
-        imageRepo: container.repos.image,
-    });
-    const modal = await openModal(
-        { host: container.host },
-        {
-            title: '生成工作台',
-            element: root,
-            dialogClass: 'nd-workbench-popup',
-            wide: true,
-            large: true,
-            allowVerticalScrolling: true,
-        },
-    );
-    const dialog = root.closest('dialog');
-    const onClose = () => handle.destroy();
-    dialog?.addEventListener('close', onClose, { once: true });
-    runtime.workbenchModal = {
-        destroy() {
-            dialog?.removeEventListener('close', onClose);
-            try {
-                handle.destroy();
-            } catch {
-                // ignore
-            }
-            try {
-                modal.destroy();
-            } catch {
-                // ignore
-            }
-        },
-    };
+    await openManagementUi(container, WORKBENCH_TAB_ID);
 }
 
 /**
@@ -489,14 +459,15 @@ function registerSlashCommands(host) {
     host.registerSlashCommand({
         name: 'naimgr',
         aliases: ['nai-panel'],
-        helpString: '打开酒馆数据库生图',
-        callback: async () => {
+        helpString: '打开酒馆数据库生图 · 管理台',
+        // 立即返回：STscript 运行期间酒馆会在发送键上方显示暂停 / 停止按钮
+        callback: () => {
             const container = liveContainer();
             if (!container) {
                 safeToast(null, 'warning', '酒馆数据库生图未成功加载');
                 return '';
             }
-            await openManagementUi(container);
+            void openManagementUi(container);
             return '';
         },
     });
@@ -505,13 +476,17 @@ function registerSlashCommands(host) {
         name: 'naifloor',
         aliases: ['nai-floor'],
         helpString: '对本楼生图，和悬浮球双击相同',
-        callback: () => runManualFloorFromEntry(),
+        // 立即返回，生图在后台跑；否则酒馆的暂停 / 停止按钮会一直盖住发送键
+        callback: () => {
+            void runManualFloorFromEntry();
+            return '';
+        },
     });
 
     host.registerSlashCommand({
         name: 'naicfg',
         aliases: ['nai-config'],
-        helpString: '打开配置面板，和单击悬浮球相同',
+        helpString: '打开快捷配置面板，和单击悬浮球相同',
         callback: async () => {
             if (typeof runtime.floatingBallHandle?.openConfigPanel !== 'function') {
                 safeToast(null, 'warning', '酒馆数据库生图未成功加载');
@@ -544,7 +519,7 @@ function registerSlashCommands(host) {
     host.registerSlashCommand({
         name: 'naiwb',
         aliases: ['nai-workbench'],
-        helpString: '打开酒馆数据库生图 · 生成工作台',
+        helpString: '打开管理台的生成工作台标签',
         callback: async () => {
             const container = liveContainer();
             if (!container) {
@@ -601,8 +576,12 @@ function syncFloorBtnBusy(btn, messageId, container) {
  * 轮询可见楼层按钮的 isWriting（覆盖自动写路径）。
  * @param {Awaited<ReturnType<typeof createContainer>>} container
  */
+/** @type {Map<string, boolean>} 各楼层控件上次看到的“写提示词中”状态 */
+const floorWritingSeen = new Map();
+
 function startFloorBusyWatch(container) {
     stopFloorBusyWatch();
+    floorWritingSeen.clear();
     runtime.floorBusyTimer = setInterval(() => {
         const c = liveContainer();
         if (!c || c !== container) {
@@ -625,6 +604,23 @@ function startFloorBusyWatch(container) {
                     syncFloorBtnBusy(btn, mid, c);
                 }
             });
+        } catch {
+            // ignore
+        }
+        // 楼层图片控件：本楼写提示词状态变化时重绘（按钮显示“正在生成提示词…”）
+        try {
+            for (const [key, handle] of runtime.slotWidgets) {
+                const mid = Number(String(key).split('::')[1]);
+                if (!Number.isInteger(mid)) continue;
+                const writing = Boolean(c.useCases.generateSlots.isWriting?.(mid));
+                if (floorWritingSeen.get(key) !== writing) {
+                    floorWritingSeen.set(key, writing);
+                    handle.refresh?.();
+                }
+            }
+            for (const key of floorWritingSeen.keys()) {
+                if (!runtime.slotWidgets.has(key)) floorWritingSeen.delete(key);
+            }
         } catch {
             // ignore
         }
@@ -767,13 +763,9 @@ function mountFloatingBallUi() {
                 : (tabOrOpts && typeof tabOrOpts === 'object' ? tabOrOpts.tab : undefined);
             return openManagementUi(c, tab);
         },
-        openWorkbench: () => {
+        onSettingsChange: (fn) => {
             const c = liveContainer();
-            if (!c) {
-                safeToast(null, 'warning', '酒馆数据库生图未成功加载');
-                return;
-            }
-            return openWorkbenchUi(c);
+            return typeof c?.settingsStore?.onChange === 'function' ? c.settingsStore.onChange(fn) : undefined;
         },
         generateFloor: async () => {
             const c = liveContainer();
@@ -1002,6 +994,14 @@ async function mountOneSlot(container, slotEl, messageId, slotId) {
                 const n = Number(container.loadSettings()?.floorImageScale);
                 return Number.isInteger(n) ? n : 100;
             },
+            isWritingPrompts: (mid) => Boolean(container.useCases.generateSlots.isWriting?.(mid)),
+            loadSettings: () => container.loadSettings(),
+            confirmRegenerate: () => confirmAsk({ host: container.host }, {
+                title: '重新生成',
+                message: '重新生成这张图？',
+                okLabel: '重新生成',
+                okVariant: 'primary',
+            }),
         });
     } catch {
         slotRoot.removeAttribute?.('data-nai-mounted');
@@ -1121,6 +1121,64 @@ export async function activate(opts = {}) {
         const regexResult = await container.host.ensureSlotRegexInstalled();
         if (regexResult && regexResult.ok === false) {
             safeToast(container.host, 'warning', formatUserMessage(regexResult));
+        }
+
+        // 0.2.45：夜间模式标记写在 <html>，设置变化时同步（管理台 / 悬浮窗 / 楼层控件一起切）
+        try {
+            applyTheme(container.loadSettings()?.themeMode);
+        } catch {
+            // ignore
+        }
+        if (typeof container.settingsStore.onChange === 'function') {
+            const unsubTheme = container.settingsStore.onChange(() => {
+                try {
+                    applyTheme(container.loadSettings()?.themeMode);
+                } catch {
+                    // ignore
+                }
+            });
+            rollback.push(() => {
+                try {
+                    unsubTheme();
+                } catch {
+                    // ignore
+                }
+                clearTheme();
+            });
+        }
+
+        // 0.2.46：当前画师串换了，且开了「模型跟随模型版本」：系列不同就换一次绑定模型，之后不锁定
+        if (typeof container.settingsStore.onChange === 'function') {
+            let lastArtistId = container.loadSettings()?.activeArtistId ?? null;
+            let followSeq = 0;
+            const unsubFollow = container.settingsStore.onChange((settings) => {
+                const id = settings?.activeArtistId ?? null;
+                if (id === lastArtistId) return;
+                lastArtistId = id;
+                if (!id || settings?.naiModelFollowsArtist === false) return;
+                const seq = ++followSeq;
+                void (async () => {
+                    try {
+                        const got = await container.repos.artist.get(id);
+                        if (seq !== followSeq || !got?.ok || !got.value) return;
+                        const cur = container.loadSettings();
+                        if (cur.activeArtistId !== id || cur.naiModelFollowsArtist === false) return;
+                        const next = followModelForArtistTag(cur, cur.naiParams?.model, resolveArtistModelTag(got.value));
+                        if (!next) return;
+                        const { params } = reconcileParamsForModel(cur.naiParams, next);
+                        container.settingsStore.save({ ...cur, naiParams: params });
+                    } catch {
+                        // ignore
+                    }
+                })();
+            });
+            rollback.push(() => {
+                try {
+                    unsubFollow();
+                } catch {
+                    // ignore
+                }
+            });
         }
 
         const slotObserver = createSlotMountObserver({
@@ -1479,7 +1537,6 @@ export async function activate(opts = {}) {
         }
 
         rollback.length = 0;
-        setLoadBanner('酒馆数据库生图：已启动', 'ok');
     } catch (err) {
         const message = formatUserMessage(err);
         const host = runtime.container?.host;
@@ -1505,15 +1562,9 @@ export async function activate(opts = {}) {
  */
 async function disposeInternal() {
     stopFloorBusyWatch();
+    clearTheme();
     runtime.editorCleanup?.();
     runtime.editorCleanup = null;
-
-    try {
-        runtime.workbenchModal?.destroy();
-    } catch {
-        // ignore
-    }
-    runtime.workbenchModal = null;
 
     try {
         runtime.panelShell?.destroy();

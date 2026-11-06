@@ -9,10 +9,14 @@
  */
 
 import { createNumberField, createTextarea, createToggle, createButton, createFieldGroup } from '../common/controls.js';
+import {
+    NAI_MODEL_OPTIONS,
+    reconcileParamsForModel,
+} from '../../domain/nai/param-options.js';
 import { CONTEXT_BODY_PATTERN_HINT, normalizeContextBodyPattern } from '../../domain/blocks/context-body.js';
 import { mountCurrentPicker } from '../common/current-picker.js';
 import { safeImageUrl } from '../common/safe-url.js';
-import { mergePluginSettings } from '../../domain/model/plugin-settings.js';
+import { mergePluginSettings, isQuickConfigItemVisible } from '../../domain/model/plugin-settings.js';
 import { llmConfigHasKey, naiConfigHasKey } from '../../domain/model/api-config.js';
 import { pickAllowedSettingsPatch } from '../panels/_lib/library-logic.js';
 import { el, setText } from '../panels/_lib/panel-kit.js';
@@ -35,6 +39,8 @@ import { el, setText } from '../panels/_lib/panel-kit.js';
  *   画师串卡片图 URL（服务端文件 + ?v=）；有封面的 picker 必须注入。
  * @property {(fn: () => void) => () => void} [subscribeSettings]
  *   D60：外部设置变更时回调；未提供则退化为指纹轮询。
+ * @property {(anyVisible: boolean) => void} [onVisibilityApplied]
+ *   每次按 quickConfigVisibility 应用显隐后回调；参数为抽屉内是否还有可见项。
  */
 
 /** 参与 D60 同步的激活项键（抽屉 picker 所依赖的） */
@@ -92,6 +98,12 @@ export function mountDrawer(root, deps) {
     }
 
     const current = load();
+    const hideBall = createToggle({
+        label: '隐藏悬浮球',
+        hint: '隐藏后从快捷回复栏进入',
+        checked: current.hideFloatingBall === true,
+        onChange: (v) => patch({ hideFloatingBall: v }),
+    });
     const contextN = createNumberField({
         label: '上下文楼数',
         value: current.contextWindowSize ?? 5,
@@ -202,8 +214,9 @@ export function mountDrawer(root, deps) {
  *   modelTagFilter?: boolean,
  * }} [pickerOpts]
  */
-    function addPicker(label, listFn, getId, setId, pickerOpts) {
+    function addPicker(id, label, listFn, getId, setId, pickerOpts) {
         const wrap = el('div', 'nd-drawer__picker');
+        pickerWraps.set(id, wrap);
         const lab = el('span', 'nd-field__label');
         setText(lab, label);
         const host = el('div');
@@ -236,10 +249,12 @@ export function mountDrawer(root, deps) {
 
     /** @type {{ destroy: () => void, refresh: () => Promise<void> }[]} */
     const pickerHandles = [];
+    /** @type {Map<string, HTMLElement>} 快速配置显隐 id → picker 外层 */
+    const pickerWraps = new Map();
 
     if (repos.artist) {
         pickerHandles.push(addPicker(
-            '当前画师串',
+            'artist', '当前画师串',
             async () => {
                 const r = await repos.artist.list();
                 return r?.ok ? r.value : [];
@@ -251,7 +266,7 @@ export function mountDrawer(root, deps) {
     }
     if (repos.naiConfig) {
         pickerHandles.push(addPicker(
-            '当前 NAI',
+            'nai', '当前 NAI',
             async () => {
                 const r = await repos.naiConfig.list();
                 return r?.ok ? r.value : [];
@@ -261,9 +276,23 @@ export function mountDrawer(root, deps) {
             { cover: false, getLabel: (item) => configLabelWithKey(item, naiConfigHasKey) },
         ));
     }
+    // 0.2.49：生图模型改用和其他选择器同一个 current-picker（同控件、同下拉）
+    const modelHandle = addPicker(
+        'naiModel', '生图模型',
+        async () => NAI_MODEL_OPTIONS.map((o) => ({ id: o.value, name: o.label })),
+        () => load().naiParams?.model ?? null,
+        (id) => {
+            if (!id) return;
+            const cur = load().naiParams || {};
+            if (cur.model === id) return;
+            patch({ naiParams: reconcileParamsForModel(cur, id).params });
+        },
+        { cover: false },
+    );
+    pickerHandles.push(modelHandle);
     if (repos.llmConfig) {
         pickerHandles.push(addPicker(
-            '召回 LLM',
+            'recallLlm', '召回 LLM',
             async () => {
                 const r = await repos.llmConfig.list();
                 return r?.ok ? r.value : [];
@@ -273,7 +302,7 @@ export function mountDrawer(root, deps) {
             { cover: false, getLabel: (item) => configLabelWithKey(item, llmConfigHasKey) },
         ));
         pickerHandles.push(addPicker(
-            '提示词 LLM',
+            'promptLlm', '提示词 LLM',
             async () => {
                 const r = await repos.llmConfig.list();
                 return r?.ok ? r.value : [];
@@ -285,7 +314,7 @@ export function mountDrawer(root, deps) {
     }
     if (repos.preset) {
         pickerHandles.push(addPicker(
-            '生图预设',
+            'imagegenPreset', '生图预设',
             async () => {
                 const r = await repos.preset.list();
                 const items = r?.ok ? r.value : [];
@@ -296,7 +325,7 @@ export function mountDrawer(root, deps) {
             { cover: false },
         ));
         pickerHandles.push(addPicker(
-            '召回预设',
+            'recallPreset', '召回预设',
             async () => {
                 const r = await repos.preset.list();
                 const items = r?.ok ? r.value : [];
@@ -344,12 +373,51 @@ export function mountDrawer(root, deps) {
     });
 
     const group = createFieldGroup({
-        title: '高频开关',
-        children: [contextN.el, contextBodyPattern.el, floorImageScale.el, autoWrite.el, autoRender.el, naiParallel.el, includeWorldInfo.el, includeWorldInfoCharacters.el, omitRecentSlots.el],
+        children: [hideBall.el, contextN.el, contextBodyPattern.el, floorImageScale.el, autoWrite.el, autoRender.el, naiParallel.el, includeWorldInfo.el, includeWorldInfoCharacters.el, omitRecentSlots.el],
     });
+
+    /** 快速配置显隐 id → 开关行 */
+    const switchItems = new Map([
+        ['hideFloatingBall', hideBall.el],
+        ['contextWindowSize', contextN.el],
+        ['contextBodyPattern', contextBodyPattern.el],
+        ['floorImageScale', floorImageScale.el],
+        ['autoWriteSlots', autoWrite.el],
+        ['autoRenderSlots', autoRender.el],
+        ['naiParallel', naiParallel.el],
+        ['includeWorldInfo', includeWorldInfo.el],
+        ['includeWorldInfoCharacters', includeWorldInfoCharacters.el],
+        ['omitRecentSlots', omitRecentSlots.el],
+    ]);
+
+    /**
+     * 按 quickConfigVisibility 切换各项 hidden；整组都隐藏时隐藏整组。
+     */
+    function applyVisibility() {
+        const s = load();
+        let anySwitch = false;
+        for (const [id, node] of switchItems) {
+            const on = isQuickConfigItemVisible(s, id);
+            node.hidden = !on;
+            if (on) anySwitch = true;
+        }
+        group.el.hidden = !anySwitch;
+        let anyPicker = false;
+        for (const [id, node] of pickerWraps) {
+            const on = isQuickConfigItemVisible(s, id);
+            node.hidden = !on;
+            if (on) anyPicker = true;
+        }
+        pickers.hidden = !anyPicker;
+        hideBall.setValue(s.hideFloatingBall === true);
+        if (typeof deps.onVisibilityApplied === 'function') {
+            deps.onVisibilityApplied(anySwitch || anyPicker);
+        }
+    }
 
     shell.append(title, group.el, pickers, openBtn);
     root.appendChild(shell);
+    applyVisibility();
 
     /** @type {Array<() => void>} */
     const cleanups = [];
@@ -362,6 +430,9 @@ export function mountDrawer(root, deps) {
      */
     function onSettingsMaybeChanged() {
         if (destroyed) return;
+        applyVisibility();
+        // 模型变化不改指纹，单独刷新模型选择器
+        void modelHandle.refresh();
         const nextFp = activePickerFingerprint(load());
         if (nextFp === lastFp) return;
         lastFp = nextFp;
@@ -426,6 +497,7 @@ export function mountDrawer(root, deps) {
             }
             cleanups.length = 0;
             for (const h of pickerHandles) h.destroy();
+            hideBall.destroy();
             contextN.destroy();
             contextBodyPattern.destroy();
             floorImageScale.destroy();

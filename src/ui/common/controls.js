@@ -4,6 +4,7 @@
  */
 
 import { t } from '../i18n/zh-CN.js';
+import { bindDebouncedInput } from './debounced-input.js';
 
 /**
  * @param {string} tag
@@ -352,6 +353,8 @@ export function createCombobox(opts) {
     let filtered = [];
     let highlight = -1;
     let open = false;
+    // 0.2.46：打开时先列全部选项；只有用户手动输入之后才按输入过滤
+    let userTyped = false;
 
     /** @type {(v: string) => void} */
     const onChange = typeof opts?.onChange === 'function' ? opts.onChange : () => {};
@@ -382,7 +385,7 @@ export function createCombobox(opts) {
     }
 
     function filterOptions() {
-        const q = input.value.trim().toLowerCase();
+        const q = userTyped ? input.value.trim().toLowerCase() : '';
         filtered = q
             ? allOptions.filter((id) => id.toLowerCase().includes(q))
             : [...allOptions];
@@ -429,7 +432,8 @@ export function createCombobox(opts) {
         list.style.left = `${Math.round(rect.left)}px`;
         list.style.width = `${Math.round(rect.width)}px`;
         list.style.maxHeight = `${Math.round(maxH)}px`;
-        list.style.zIndex = '10050';
+        // 0.2.48：浮层已拉到最高层，下拉列表再高一级才不会被盖住
+        list.style.zIndex = '2147483002';
         if (spaceBelow < 140 && rect.top > spaceBelow) {
             list.style.top = 'auto';
             list.style.bottom = `${Math.round(vh - rect.top + 4)}px`;
@@ -449,6 +453,10 @@ export function createCombobox(opts) {
 
     function openList() {
         filterOptions();
+        if (!userTyped) {
+            const at = filtered.indexOf(input.value);
+            if (at >= 0) highlight = at;
+        }
         if (highlight < 0 && filtered.length) {
             highlight = 0;
         }
@@ -464,6 +472,7 @@ export function createCombobox(opts) {
         list.hidden = true;
         open = false;
         highlight = -1;
+        userTyped = false;
         root.classList.remove('is-open');
     }
 
@@ -493,8 +502,12 @@ export function createCombobox(opts) {
         }
     }
 
+    // 输入值立即回传；下拉过滤等停止输入后再做
     const onInput = () => {
+        userTyped = true;
         emit();
+    };
+    const applyFilter = () => {
         filterOptions();
         highlight = filtered.length ? 0 : -1;
         if (!open) {
@@ -506,10 +519,19 @@ export function createCombobox(opts) {
     };
 
     const onFocus = () => {
+        userTyped = false;
+        openList();
+    };
+    const onClick = () => {
+        if (open) return;
+        userTyped = false;
         openList();
     };
 
     const onKeyDown = (ev) => {
+        if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp' || ev.key === 'Enter') {
+            filterDebounce.flush();
+        }
         if (ev.key === 'ArrowDown') {
             ev.preventDefault();
             if (!open) openList();
@@ -551,7 +573,10 @@ export function createCombobox(opts) {
     const view = typeof window !== 'undefined' ? window : null;
     input.addEventListener('input', onInput);
     input.addEventListener('focus', onFocus);
+    input.addEventListener('click', onClick);
+    // keydown 先挂：方向键/回车时先 flush 过滤再处理
     input.addEventListener('keydown', onKeyDown);
+    const filterDebounce = bindDebouncedInput(input, applyFilter, { runOnEnter: false });
     document.addEventListener('mousedown', onDocPointer, true);
     if (view) {
         view.addEventListener('resize', onScrollOrResize);
@@ -575,13 +600,16 @@ export function createCombobox(opts) {
         },
         open: () => {
             input.focus();
+            userTyped = false;
             openList();
         },
         close: closeList,
         destroy: () => {
             input.removeEventListener('input', onInput);
             input.removeEventListener('focus', onFocus);
+            input.removeEventListener('click', onClick);
             input.removeEventListener('keydown', onKeyDown);
+            filterDebounce.dispose();
             document.removeEventListener('mousedown', onDocPointer, true);
             if (view) {
                 view.removeEventListener('resize', onScrollOrResize);
@@ -982,6 +1010,154 @@ export function createStatusPill(opts) {
         setLabel: (s) => setText(text, s == null ? '' : String(s)),
         destroy: () => {
             root.remove();
+        },
+    };
+}
+
+/**
+ * 0.2.48：令牌风格下拉框（替代原生 select，列表复用 combobox 样式）。
+ * @param {object} opts
+ * @param {{ value: string, label?: string }[]} opts.options
+ * @param {string} [opts.value]
+ * @param {string} [opts.ariaLabel]
+ * @param {string} [opts.className]
+ * @param {(v: string) => void} [opts.onChange]
+ * @returns {{ el: HTMLButtonElement, getValue: () => string, setValue: (v: string) => void, destroy: () => void }}
+ */
+export function createTokenSelect(opts) {
+    const options = (Array.isArray(opts?.options) ? opts.options : [])
+        .filter((o) => o && o.value != null)
+        .map((o) => ({ value: String(o.value), label: o.label != null ? String(o.label) : String(o.value) }));
+    let value = opts?.value != null && options.some((o) => o.value === String(opts.value))
+        ? String(opts.value)
+        : (options[0]?.value ?? '');
+    const onChange = typeof opts?.onChange === 'function' ? opts.onChange : () => {};
+
+    const btn = /** @type {HTMLButtonElement} */ (el('button', `nd-select nd-token-select${opts?.className ? ` ${opts.className}` : ''}`));
+    btn.type = 'button';
+    btn.setAttribute('aria-haspopup', 'listbox');
+    btn.setAttribute('aria-expanded', 'false');
+    if (opts?.ariaLabel) btn.setAttribute('aria-label', String(opts.ariaLabel));
+    const text = el('span', 'nd-token-select__text');
+    const icon = el('i', 'fa-solid fa-chevron-down nd-token-select__icon');
+    icon.setAttribute('aria-hidden', 'true');
+    btn.append(text, icon);
+
+    const list = el('ul', 'nd-combobox__list nd-token-select__list');
+    list.setAttribute('role', 'listbox');
+    list.hidden = true;
+    let open = false;
+
+    function paintLabel() {
+        const cur = options.find((o) => o.value === value);
+        setText(text, cur ? cur.label : '');
+    }
+
+    function renderList() {
+        list.replaceChildren();
+        for (const o of options) {
+            const item = el('li', 'nd-combobox__option');
+            item.setAttribute('role', 'option');
+            setText(item, o.label);
+            if (o.value === value) {
+                item.classList.add('is-active');
+                item.setAttribute('aria-selected', 'true');
+            }
+            item.addEventListener('mousedown', (ev) => {
+                ev.preventDefault();
+                pick(o.value);
+            });
+            list.appendChild(item);
+        }
+    }
+
+    function positionList() {
+        const rect = typeof btn.getBoundingClientRect === 'function'
+            ? btn.getBoundingClientRect()
+            : { top: 0, bottom: 32, left: 0, right: 160, width: 160 };
+        const vh = (typeof window !== 'undefined' && window.innerHeight) || 600;
+        const vw = (typeof window !== 'undefined' && window.innerWidth) || 800;
+        const width = Math.max(rect.width, 120);
+        const spaceBelow = vh - rect.bottom;
+        list.style.position = 'fixed';
+        list.style.left = `${Math.round(Math.max(0, Math.min(rect.left, vw - width)))}px`;
+        list.style.width = `${Math.round(width)}px`;
+        list.style.maxHeight = `${Math.round(Math.min(280, Math.max(120, spaceBelow > 160 ? spaceBelow - 8 : rect.top - 8)))}px`;
+        list.style.zIndex = '2147483002';
+        if (spaceBelow < 140 && rect.top > spaceBelow) {
+            list.style.top = 'auto';
+            list.style.bottom = `${Math.round(vh - rect.top + 4)}px`;
+        } else {
+            list.style.bottom = 'auto';
+            list.style.top = `${Math.round(rect.bottom + 4)}px`;
+        }
+    }
+
+    function openList() {
+        renderList();
+        if (!list.parentNode) (btn.closest('.nd-root') || document.body).appendChild(list);
+        positionList();
+        list.hidden = false;
+        open = true;
+        btn.setAttribute('aria-expanded', 'true');
+        btn.classList.add('is-open');
+    }
+
+    function closeList() {
+        list.hidden = true;
+        open = false;
+        btn.setAttribute('aria-expanded', 'false');
+        btn.classList.remove('is-open');
+    }
+
+    function pick(v) {
+        closeList();
+        if (v === value) return;
+        value = v;
+        paintLabel();
+        onChange(value);
+    }
+
+    const onClick = () => (open ? closeList() : openList());
+    const onKey = (ev) => {
+        if (ev.key === 'Escape' && open) {
+            ev.preventDefault();
+            closeList();
+        }
+    };
+    const onDocPointer = (ev) => {
+        if (!open) return;
+        const t = /** @type {Node|null} */ (ev.target);
+        if (t && (btn.contains(t) || list.contains(t))) return;
+        closeList();
+    };
+    const onScroll = (ev) => {
+        if (open && !(ev?.target && list.contains(/** @type {Node} */ (ev.target)))) closeList();
+    };
+    btn.addEventListener('click', onClick);
+    btn.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDocPointer, true);
+    const view = typeof window !== 'undefined' ? window : null;
+    view?.addEventListener('resize', closeList);
+    view?.addEventListener('scroll', onScroll, true);
+    paintLabel();
+
+    return {
+        el: btn,
+        getValue: () => value,
+        setValue: (v) => {
+            const s = v == null ? '' : String(v);
+            if (options.some((o) => o.value === s)) value = s;
+            paintLabel();
+        },
+        destroy: () => {
+            btn.removeEventListener('click', onClick);
+            btn.removeEventListener('keydown', onKey);
+            document.removeEventListener('mousedown', onDocPointer, true);
+            view?.removeEventListener('resize', closeList);
+            view?.removeEventListener('scroll', onScroll, true);
+            list.remove();
+            btn.remove();
         },
     };
 }

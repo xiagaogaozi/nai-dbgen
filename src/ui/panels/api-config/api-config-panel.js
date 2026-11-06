@@ -515,7 +515,7 @@ export function mountApiConfigPanel(root, deps) {
                 },
             }),
         );
-        form.appendChild(actions);
+        (modal.footer || form).appendChild(actions);
 
         /**
          * @param {string} label
@@ -856,7 +856,7 @@ export function mountApiConfigPanel(root, deps) {
                 },
             }),
         );
-        form.appendChild(actions);
+        (modal.footer || form).appendChild(actions);
 
         async function saveNai() {
             const name = nameField.getValue().trim();

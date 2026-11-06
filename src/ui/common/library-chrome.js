@@ -6,8 +6,9 @@
  */
 
 import { t } from '../i18n/zh-CN.js';
-import { createButton, createMiniAction, createToggle } from './controls.js';
+import { createButton, createMiniAction, createToggle, createTokenSelect } from './controls.js';
 import { paintSafeCover, paintCoverEmpty } from './safe-url.js';
+import { bindDebouncedInput } from './debounced-input.js';
 
 /**
  * @param {string} tag
@@ -37,6 +38,8 @@ function el(tag, className) {
  * @param {{ label: string, action?: string, variant?: string, onClick?: () => void }[]} [opts.actions]
  * @param {() => void} [opts.onOpen] 点标题（封面默认也走这里，除非给了 onCoverClick）
  * @param {() => void} [opts.onCoverClick] 点封面；有则封面不走 onOpen
+ * @param {string} [opts.coverBadge] 封面右下角小角标（如 v5 / v4.5）
+ * @param {boolean} [opts.openOnCardClick] 点卡片任意处（封面、勾选框除外）走 onOpen
  * @param {HTMLElement} [opts.body]
  * @returns {{
  *   el: HTMLElement,
@@ -74,6 +77,22 @@ export function createStyleCard(opts) {
             paintCoverEmpty(cover, { variant: 'label' });
         }
     }
+    /** @type {HTMLElement|null} */
+    let coverBadgeEl = null;
+    const coverBadgeText = opts?.coverBadge != null ? String(opts.coverBadge).trim() : '';
+    if (coverBadgeText && cover) {
+        // 挂在封面里；setCover 重绘封面后重新补回
+        coverBadgeEl = el('span', 'nd-style-card__cover-badge');
+        coverBadgeEl.textContent = coverBadgeText;
+        cover.appendChild(coverBadgeEl);
+    }
+    // 裂图时 paintSafeCover 会把封面换成占位，角标随之被清；事后补回
+    const onCoverImgError = () => {
+        setTimeout(() => {
+            if (cover && coverBadgeEl && coverBadgeEl.parentNode !== cover) cover.appendChild(coverBadgeEl);
+        }, 0);
+    };
+    if (coverBadgeEl && cover) cover.addEventListener('error', onCoverImgError, true);
 
     const body = el('div', 'nd-style-card__body');
     const textCol = el('div', 'nd-style-card__text');
@@ -181,13 +200,30 @@ export function createStyleCard(opts) {
                 cover.removeEventListener('click', onCover);
             });
         }
-        if (typeof opts.onOpen === 'function') {
+        if (typeof opts.onOpen === 'function' && opts.openOnCardClick === true) {
+            root.classList.add('nd-style-card--clickable');
+            const onRoot = (event) => {
+                const target = event.target instanceof Element ? event.target : null;
+                const inner = target?.closest('button, a, input, label, select, textarea');
+                if (inner && inner !== root) return;
+                event.preventDefault();
+                opts.onOpen();
+            };
+            root.addEventListener('click', onRoot);
+            cleanups.push(() => {
+                root.removeEventListener('click', onRoot);
+            });
+        } else if (typeof opts.onOpen === 'function') {
             heading.style.cursor = 'pointer';
             heading.addEventListener('click', onOpen);
             cleanups.push(() => {
                 heading.removeEventListener('click', onOpen);
             });
         }
+    }
+
+    if (coverBadgeEl && cover) {
+        cleanups.push(() => cover.removeEventListener('error', onCoverImgError, true));
     }
 
     /** @type {HTMLElement[]} */
@@ -295,10 +331,11 @@ export function createStyleCard(opts) {
             if (hasUrl) {
                 cover.classList.remove('nd-style-card__cover--empty');
                 paintSafeCover(cover, url, text, { emptyVariant: 'label' });
-                return;
+            } else {
+                cover.classList.add('nd-style-card__cover--empty');
+                paintCoverEmpty(cover, { variant: 'label' });
             }
-            cover.classList.add('nd-style-card__cover--empty');
-            paintCoverEmpty(cover, { variant: 'label' });
+            if (coverBadgeEl) cover.appendChild(coverBadgeEl);
         },
         setActive(v) {
             root.classList.toggle('is-active', Boolean(v));
@@ -338,6 +375,7 @@ export function createStyleCard(opts) {
  * @param {() => void} [opts.onImport]
  * @param {() => void} [opts.onExport]
  * @param {HTMLElement[]} [opts.extra]
+ * @param {HTMLElement[]} [opts.leading] 插在「新建」后、导入/导出前
  * @returns {{
  *   el: HTMLElement,
  *   getSearch: () => string,
@@ -380,21 +418,18 @@ export function createLibraryToolbar(opts) {
         if (opts.filterValue != null) filterSelect.value = String(opts.filterValue);
     }
 
-    /** @type {HTMLSelectElement|null} */
+    // 0.2.48：排序改用令牌风格下拉框，不再用原生 select
+    /** @type {ReturnType<typeof createTokenSelect>|null} */
     let sortSelect = null;
     if (Array.isArray(opts?.sortOptions) && opts.sortOptions.length) {
-        sortSelect = /** @type {HTMLSelectElement} */ (el('select', 'nd-select'));
-        sortSelect.setAttribute(
-            'aria-label',
-            opts.sortLabel != null ? String(opts.sortLabel) : t('library.sort'),
-        );
-        for (const item of opts.sortOptions) {
-            const option = document.createElement('option');
-            option.value = String(item.value);
-            option.textContent = item.label != null ? String(item.label) : String(item.value);
-            sortSelect.appendChild(option);
-        }
-        if (opts.sortValue != null) sortSelect.value = String(opts.sortValue);
+        sortSelect = createTokenSelect({
+            options: opts.sortOptions,
+            value: opts.sortValue != null ? String(opts.sortValue) : undefined,
+            ariaLabel: opts.sortLabel != null ? String(opts.sortLabel) : t('library.sort'),
+            onChange: (v) => {
+                if (typeof opts?.onSort === 'function') opts.onSort(v);
+            },
+        });
     }
 
     /** @type {HTMLButtonElement[]} */
@@ -405,6 +440,9 @@ export function createLibraryToolbar(opts) {
             variant: 'primary',
             onClick: opts.onCreate,
         }));
+    }
+    for (const node of Array.isArray(opts?.leading) ? opts.leading : []) {
+        if (node instanceof HTMLElement) buttons.push(/** @type {HTMLButtonElement} */ (node));
     }
     if (typeof opts?.onImport === 'function') {
         buttons.push(createButton({
@@ -430,7 +468,7 @@ export function createLibraryToolbar(opts) {
 
     root.appendChild(searchWrap);
     if (filterSelect) root.appendChild(filterSelect);
-    if (sortSelect) root.appendChild(sortSelect);
+    if (sortSelect) root.appendChild(sortSelect.el);
     if (actions.childNodes.length) root.appendChild(actions);
 
     const onSearch = () => {
@@ -441,15 +479,10 @@ export function createLibraryToolbar(opts) {
             opts.onFilter(filterSelect.value);
         }
     };
-    const onSort = () => {
-        if (sortSelect && typeof opts?.onSort === 'function') {
-            opts.onSort(sortSelect.value);
-        }
-    };
 
-    search.addEventListener('input', onSearch);
+    const searchDebounce = bindDebouncedInput(search, onSearch);
     filterSelect?.addEventListener('change', onFilter);
-    sortSelect?.addEventListener('change', onSort);
+
 
     let destroyed = false;
     return {
@@ -462,16 +495,16 @@ export function createLibraryToolbar(opts) {
         setFilter(v) {
             if (filterSelect) filterSelect.value = v == null ? '' : String(v);
         },
-        getSort: () => (sortSelect ? sortSelect.value : ''),
+        getSort: () => (sortSelect ? sortSelect.getValue() : ''),
         setSort(v) {
-            if (sortSelect) sortSelect.value = v == null ? '' : String(v);
+            if (sortSelect) sortSelect.setValue(v);
         },
         destroy() {
             if (destroyed) return;
             destroyed = true;
-            search.removeEventListener('input', onSearch);
+            searchDebounce.dispose();
             filterSelect?.removeEventListener('change', onFilter);
-            sortSelect?.removeEventListener('change', onSort);
+            sortSelect?.destroy();
             root.remove();
         },
     };

@@ -421,6 +421,7 @@ describe('ui/panels/prompts mountPromptsPanel', () => {
         input.value = 'wolf';
         const listener = (input._listeners || []).find((l) => l.type === 'input');
         listener?.fn();
+        await new Promise((r) => setTimeout(r, 320));
 
         const after = collectTextRaw(ctx.root);
         assert.match(after, /alpha wolf/);

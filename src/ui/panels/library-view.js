@@ -43,11 +43,21 @@ import { el, setText } from './_lib/panel-kit.js';
  *   }|null|undefined,
  *   sortOptions?: { value: string, label: string }[],
  *   defaultSort?: string,
+ *   onSortChange?: (sort: string) => void,
  *   filterBar?: HTMLElement,
  *   bulkBar?: HTMLElement,
+ *   statusExtra?: HTMLElement,
  *   selectable?: boolean,
+ *   selectionMode?: boolean,
  *   onSelectionChange?: (ids: string[]) => void,
+ *   toolbarLeading?: HTMLElement[],
+ *   cardActions?: boolean,
+ *   coverBadge?: (item: object) => string|null|undefined,
+ *   openOnCardClick?: boolean,
  * }} [opts]
+ *   `selectionMode` 初始是否在选择模式；缺省 = selectable（老行为：一直可勾选）
+ *   `cardActions: false` 卡片不放编辑/删除按钮
+ *   `openOnCardClick` 点卡片边框/文字区即打开编辑
  *   `cover: true` 画师串等应有图的类型（无图也保留同比例占位）；缺省/false 为紧凑文字卡
  *   `titleBadge` 返回名字旁 muted 提示（如未填 Key）
  *   `cardMeta` 覆盖 columns 拼副标题：分行副标题 + 用途徽标 + 状态
@@ -58,6 +68,9 @@ import { el, setText } from './_lib/panel-kit.js';
  *   getSelectedIds: () => string[],
  *   selectVisible: () => void,
  *   clearSelection: () => void,
+ *   setSelectionMode: (on: boolean) => void,
+ *   isSelectionMode: () => boolean,
+ *   getVisibleIds: () => string[],
  * }}
  */
 export function mountLibraryView(root, deps, opts) {
@@ -68,6 +81,7 @@ export function mountLibraryView(root, deps, opts) {
     const searchKeys = opts?.searchKeys || ['name', 'key', 'model', 'baseUrl'];
     const showCover = opts?.cover === true;
     const selectable = opts?.selectable === true;
+    let selectionMode = selectable && opts?.selectionMode !== false;
     /** @type {Set<string>} */
     const selected = new Set();
     const defaultSort = opts?.defaultSort != null ? String(opts.defaultSort) : 'name-asc';
@@ -88,12 +102,16 @@ export function mountLibraryView(root, deps, opts) {
     const shell = el('div', 'nd-library-view');
     const toolbar = createLibraryToolbar({
         onSearch: (q) => store.set((s) => ({ ...s, query: q })),
-        onSort: (v) => store.set((s) => ({ ...s, sort: v })),
+        onSort: (v) => {
+            store.set((s) => ({ ...s, sort: v }));
+            if (typeof opts?.onSortChange === 'function') opts.onSortChange(v);
+        },
         sortOptions,
         sortValue: defaultSort,
         onCreate: deps.onCreate,
         onImport: deps.onImport,
         onExport: deps.onExport,
+        leading: Array.isArray(opts?.toolbarLeading) ? opts.toolbarLeading : undefined,
     });
     const grid = el('div', showCover ? 'nd-style-grid' : 'nd-style-grid nd-style-grid--text');
     const status = el('div', 'nd-library-view__status');
@@ -107,7 +125,14 @@ export function mountLibraryView(root, deps, opts) {
     if (opts?.bulkBar instanceof Element) {
         shell.appendChild(opts.bulkBar);
     }
-    shell.append(status, scroller);
+    if (opts?.statusExtra instanceof Element) {
+        // 0.2.47：“共 N 条”与附加信息（如“已选 N”）并排，少占一行
+        const statusRow = el('div', 'nd-library-view__status-row');
+        statusRow.append(status, opts.statusExtra);
+        shell.append(statusRow, scroller);
+    } else {
+        shell.append(status, scroller);
+    }
     root.appendChild(shell);
 
     /** @type {{ destroy: () => void }[]} */
@@ -158,7 +183,7 @@ export function mountLibraryView(root, deps, opts) {
     }
 
     function selectVisible() {
-        if (!selectable) return;
+        if (!selectable || !selectionMode) return;
         for (const item of currentVisible()) {
             if (item?.id != null) selected.add(String(item.id));
         }
@@ -229,17 +254,23 @@ export function mountLibraryView(root, deps, opts) {
             }
 
             const itemId = item?.id != null ? String(item.id) : '';
+            const selecting = selectable && selectionMode && Boolean(itemId);
+            /** @param {boolean} on */
+            const setPicked = (on) => {
+                if (on) selected.add(itemId);
+                else selected.delete(itemId);
+                card.setSelected(on);
+                notifySelection();
+            };
+            const togglePicked = () => setPicked(!selected.has(itemId));
             const card = createStyleCard({
                 title: String(item?.name ?? item?.key ?? item?.id ?? ''),
                 selected: Boolean(itemId) && selected.has(itemId),
-                onSelect: selectable && itemId
-                    ? (on) => {
-                        if (on) selected.add(itemId);
-                        else selected.delete(itemId);
-                        card.setSelected(on);
-                        notifySelection();
-                    }
+                onSelect: selecting ? setPicked : undefined,
+                coverBadge: typeof opts?.coverBadge === 'function'
+                    ? (opts.coverBadge(item) || undefined)
                     : undefined,
+                openOnCardClick: selecting || opts?.openOnCardClick === true,
                 titleBadge: typeof opts?.titleBadge === 'function'
                     ? (opts.titleBadge(item) || undefined)
                     : undefined,
@@ -253,11 +284,13 @@ export function mountLibraryView(root, deps, opts) {
                 onEnabledChange: typeof deps.onToggleActive === 'function'
                     ? (v) => deps.onToggleActive(item, v)
                     : undefined,
-                onOpen: () => deps.onEdit(item),
-                onCoverClick: typeof deps.onCoverClick === 'function'
-                    ? () => deps.onCoverClick(item)
-                    : undefined,
-                actions: [
+                onOpen: selecting ? togglePicked : () => deps.onEdit(item),
+                onCoverClick: selecting
+                    ? togglePicked
+                    : typeof deps.onCoverClick === 'function'
+                        ? () => deps.onCoverClick(item)
+                        : undefined,
+                actions: opts?.cardActions === false ? [] : [
                     {
                         label: '编辑',
                         action: 'edit',
@@ -313,6 +346,19 @@ export function mountLibraryView(root, deps, opts) {
         },
         selectVisible,
         clearSelection,
+        setSelectionMode(on) {
+            if (!selectable) return;
+            const next = Boolean(on);
+            if (next === selectionMode) return;
+            selectionMode = next;
+            if (!next) selected.clear();
+            notifySelection();
+            paint();
+        },
+        isSelectionMode: () => selectionMode,
+        getVisibleIds: () => currentVisible()
+            .map((item) => (item?.id != null ? String(item.id) : ''))
+            .filter(Boolean),
         destroy() {
             if (destroyed) return;
             destroyed = true;

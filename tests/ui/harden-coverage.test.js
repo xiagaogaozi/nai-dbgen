@@ -24,17 +24,17 @@ describe('D61 components.css harden coverage', () => {
 
     it('hardens createToggle track and knob via .nd-toggle-row i and i::after', () => {
         assert.match(css, /\.nd-toggle-row\s+i\s*\{[^}]*box-sizing:\s*border-box\s*!important/s);
-        assert.match(css, /\.nd-toggle-row\s+i\s*\{[^}]*width:\s*35px\s*!important/s);
-        assert.match(css, /\.nd-toggle-row\s+i\s*\{[^}]*height:\s*19px\s*!important/s);
+        assert.match(css, /\.nd-toggle-row\s+i\s*\{[^}]*width:\s*var\(--nd-toggle-w\)\s*!important/s);
+        assert.match(css, /\.nd-toggle-row\s+i\s*\{[^}]*height:\s*var\(--nd-toggle-h\)\s*!important/s);
         assert.match(css, /\.nd-toggle-row\s+i::after\s*\{[^}]*box-sizing:\s*border-box\s*!important/s);
-        assert.match(css, /\.nd-toggle-row\s+i::after\s*\{[^}]*width:\s*13px\s*!important/s);
-        assert.match(css, /\.nd-toggle-row\s+i::after\s*\{[^}]*height:\s*13px\s*!important/s);
+        assert.match(css, /\.nd-toggle-row\s+i::after\s*\{[^}]*width:\s*var\(--nd-toggle-knob-size\)\s*!important/s);
+        assert.match(css, /\.nd-toggle-row\s+i::after\s*\{[^}]*height:\s*var\(--nd-toggle-knob-size\)\s*!important/s);
     });
 
     it('hardens createToggle bare input via .nd-toggle-row input', () => {
         assert.match(css, /\.nd-toggle-row\s+input\s*\{[^}]*appearance:\s*none\s*!important/s);
-        assert.match(css, /\.nd-toggle-row\s+input\s*\{[^}]*width:\s*35px\s*!important/s);
-        assert.match(css, /\.nd-toggle-row\s+input\s*\{[^}]*height:\s*19px\s*!important/s);
+        assert.match(css, /\.nd-toggle-row\s+input\s*\{[^}]*width:\s*var\(--nd-toggle-w\)\s*!important/s);
+        assert.match(css, /\.nd-toggle-row\s+input\s*\{[^}]*height:\s*var\(--nd-toggle-h\)\s*!important/s);
         assert.match(css, /\.nd-toggle-row\s+input\s*\{[^}]*padding:\s*0\s*!important/s);
         assert.match(css, /\.nd-toggle-row\s+input\s*\{[^}]*background:\s*transparent\s*!important/s);
         assert.match(css, /\.nd-toggle-row\s+input\s*\{[^}]*border:\s*0\s*!important/s);

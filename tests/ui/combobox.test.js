@@ -72,7 +72,7 @@ describe('createCombobox', () => {
         else globalThis.window = prevWindow;
     });
 
-    it('输入过滤、键盘上下回车、Esc 收起、手输有效；列表挂 .nd-root 不被裁切', () => {
+    it('输入过滤、键盘上下回车、Esc 收起、手输有效；列表挂 .nd-root 不被裁切', async () => {
         const host = document.createElement('div');
         host.className = 'nd-root';
         document.body.appendChild(host);
@@ -98,6 +98,7 @@ describe('createCombobox', () => {
 
         input.value = 'model-11';
         fire(input, 'input');
+        await new Promise((r) => setTimeout(r, 320));
         const opts = listEl.querySelectorAll('.nd-combobox__option');
         assert.ok(opts.length >= 1);
         assert.ok(opts.every((n) => String(n.textContent).includes('model-11')));

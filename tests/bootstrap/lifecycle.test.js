@@ -224,7 +224,7 @@ describe('bootstrap/lifecycle', () => {
         }
         assert.equal(unsubscribeCount, 1);
         assert.equal(fakeDom.document.body.querySelector('.nd-workbench'), null);
-        _runtimeForTest().workbenchModal.destroy();
+        _runtimeForTest().panelShell.destroy();
         assert.equal(unsubscribeCount, 1);
     });
 
