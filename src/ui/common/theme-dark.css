@@ -118,3 +118,11 @@
 [data-nd-theme="dark"] button.nd-fab.nd-fab .nd-fab__icon {
     color: #2B2B2B !important;
 }
+
+/* 酒馆主题常用 `h1-h6 / legend / label:hover { color: ... !important }` 给标题染色（如深黄 #794f27），
+   夜间模式下插件内一律强制纯白，避免和深色底融为一体。 */
+[data-nd-theme="dark"] :is(#nai-dbgen-root, .nd-root, .nd-slot) :is(h1, h2, h3, h4, h5, h6, legend),
+[data-nd-theme="dark"] :is(#nai-dbgen-root, .nd-root, .nd-slot) label:hover,
+[data-nd-theme="dark"] :is(#nai-dbgen-root, .nd-root, .nd-slot) label:hover > span {
+    color: #FFFFFF !important;
+}
