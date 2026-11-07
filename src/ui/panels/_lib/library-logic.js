@@ -29,6 +29,7 @@ export const PLUGIN_SETTINGS_KEYS = Object.freeze([
     'autoRenderSlots',
     'naiParallel',
     'hideFloatingBall',
+    'enableTagMarket',
     'slotDoubleTapRegenerate',
     'confirmSlotRegenerate',
     'maxImagesPerFloor',

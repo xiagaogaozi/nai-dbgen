@@ -47,6 +47,12 @@ export function mountTriggerPanel(root, deps) {
         checked: current.hideFloatingBall === true,
         onChange: (v) => save({ hideFloatingBall: v }),
     });
+    const enableTagMarket = createToggle({
+        label: '启用标签超市',
+        hint: '开启后在生成工作台显示；展开后才加载标签',
+        checked: current.enableTagMarket === true,
+        onChange: (v) => save({ enableTagMarket: v }),
+    });
     const contextN = createNumberField({
         label: '上下文楼数',
         value: current.contextWindowSize ?? 5,
@@ -161,7 +167,7 @@ export function mountTriggerPanel(root, deps) {
 
     const basic = createFieldGroup({
         title: '运行开关',
-        children: [hideBall.el, contextN.el, contextBodyPattern.el, patternErr.el, floorImageScale.el, maxImages.el, autoWrite.el, autoRender.el, naiParallel.el, doubleTap.el, confirmRegen.el, includeWorldInfo.el, includeWorldInfoCharacters.el, omitRecentSlots.el, caseSensitive.el, wholeWords.el],
+        children: [hideBall.el, enableTagMarket.el, contextN.el, contextBodyPattern.el, patternErr.el, floorImageScale.el, maxImages.el, autoWrite.el, autoRender.el, naiParallel.el, doubleTap.el, confirmRegen.el, includeWorldInfo.el, includeWorldInfoCharacters.el, omitRecentSlots.el, caseSensitive.el, wholeWords.el],
     });
 
     // 快速配置悬浮窗内容显隐器：眼睛图标列表，点一下立即存
@@ -210,6 +216,7 @@ export function mountTriggerPanel(root, deps) {
             destroyed = true;
             patternErr.destroy();
             hideBall.destroy();
+            enableTagMarket.destroy();
             contextN.destroy();
             contextBodyPattern.destroy();
             floorImageScale.destroy();

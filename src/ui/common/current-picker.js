@@ -51,6 +51,7 @@ function idOf(item) {
  * @param {(item: object|null|undefined) => (string|null|Promise<string|null>)} [deps.resolveCover]
  *   有图类型须注入（画师串经 artistFileUrl.cardUrl）；未传则无图占位
  * @param {boolean} [deps.modelTagFilter=false] 画师串选择：结果里可按 v4.5 / v5 过滤
+ * @param {Element|null} [deps.portalPanel] 快捷配置的已挂载悬浮窗，用于在抽屉尚未挂载时确定浮层宿主
  * @returns {{ destroy: () => void, refresh: () => Promise<void> }}
  *
  * D60：不自动订阅设置变更。外部（抽屉 / 管理台）改了激活项或列表后，
@@ -123,7 +124,7 @@ export function mountCurrentPicker(root, deps) {
     root.appendChild(shell);
 
     // 快捷配置本身是滚动并裁切的浮层：把列表放在视口级浮层中，避免被祖先裁掉。
-    const fabPanel = shell.closest?.('.nd-fab-panel') || null;
+    const fabPanel = deps?.portalPanel || shell.closest?.('.nd-fab-panel') || null;
     let portal = null;
     let positionFrame = 0;
     if (fabPanel && document.body) {

@@ -733,12 +733,15 @@ describe('ui/workbench mountWorkbench', () => {
             libraries: [{ id: 'lib-1', name: '常用库' }],
             entries: [{ id: 'market-1', libraryId: 'lib-1', key: '性格·温柔', value: 'gentle expression' }],
         };
-        const ctx = mount({ deps: { marketCatalogStore: {
+        const ctx = mount({ deps: { loadSettings: () => ({ naiParams: defaultNaiParams(), enableTagMarket: true }), marketCatalogStore: {
             async load() { return { ok: true, value: catalog }; },
             async replace(d) { return { ok: true, value: d }; },
         } } });
-        await new Promise((r) => setTimeout(r, 0));
         const market = ctx.root.querySelector('.nd-wb-market');
+        for (const listener of market.querySelector('.nd-wb-market__title')._listeners || []) {
+            if (listener.type === 'click') listener.fn();
+        }
+        await new Promise((r) => setTimeout(r, 0));
         const catTab = market.querySelectorAll('.nd-wb-market__tab').find((tab) => tab.textContent === '性格');
         assert.ok(catTab, 'renders category tab');
         for (const l of catTab._listeners.filter((item) => item.type === 'click')) l.fn();
@@ -784,12 +787,15 @@ describe('ui/workbench mountWorkbench', () => {
                 { id: 'other-leaf', libraryId: 'lib-1', key: '另一个·支线·额外标签', value: 'other_tag' },
             ],
         };
-        const ctx = mount({ deps: { marketCatalogStore: {
+        const ctx = mount({ deps: { loadSettings: () => ({ naiParams: defaultNaiParams(), enableTagMarket: true }), marketCatalogStore: {
             async load() { return { ok: true, value: catalog }; },
             async replace(data) { return { ok: true, value: data }; },
         } } });
-        await new Promise((r) => setTimeout(r, 0));
         const market = ctx.root.querySelector('.nd-wb-market');
+        for (const listener of market.querySelector('.nd-wb-market__title')._listeners || []) {
+            if (listener.type === 'click') listener.fn();
+        }
+        await new Promise((r) => setTimeout(r, 0));
         const clickCategory = (label) => {
             const button = market.querySelectorAll('.nd-wb-market__tab').find((item) => item.textContent === label);
             assert.ok(button, `category ${label} is visible`);

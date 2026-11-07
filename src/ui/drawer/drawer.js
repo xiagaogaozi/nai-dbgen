@@ -230,6 +230,8 @@ export function mountDrawer(root, deps) {
             resolveCover: pickerOpts?.resolveCover,
             getLabel: pickerOpts?.getLabel,
             modelTagFilter: pickerOpts?.modelTagFilter === true,
+            // 选择器创建时抽屉尚未挂载，用已挂载的 root 查找悬浮窗。
+            portalPanel: root.closest?.('.nd-fab-panel') || null,
         });
     }
 

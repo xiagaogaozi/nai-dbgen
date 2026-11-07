@@ -64,6 +64,7 @@ import {
 } from './workbench-logic.js';
 
 const WORKBENCH_DRAFT_KEY = 'nai-dbgen:workbench-draft';
+const MARKET_EXPANDED_KEY = 'nai-dbgen:market-expanded';
 const WORKBENCH_HISTORY_LIMIT = 50;
 
 /**
@@ -318,6 +319,11 @@ export function mountWorkbench(root, deps) {
     /** @type {Blob|null} */
     let currentPreviewBlob = null;
     let marketCatalog = null;
+    let marketLoadToken = 0;
+    let marketExpanded = false;
+    try { marketExpanded = globalThis.localStorage?.getItem(MARKET_EXPANDED_KEY) === 'true'; } catch { /* 默认折叠 */ }
+    let marketEnabled = loadSettings()?.enableTagMarket === true;
+    let syncArtistSettings = () => {};
     let marketSignature = typeof draft?.marketSignature === 'string' ? draft.marketSignature : '';
     let marketPath = [];
     let marketImportHandle = null;
@@ -849,8 +855,15 @@ export function mountWorkbench(root, deps) {
     const artistSlot = el('div', 'nd-wb-artist-slot');
     const market = el('section', 'nd-wb-market');
     const marketHeader = el('div', 'nd-wb-market__header');
-    const marketTitle = el('h4', 'nd-wb-market__title');
+    const marketTitle = el('button', 'nd-wb-market__title');
+    marketTitle.type = 'button';
     setText(marketTitle, '标签超市');
+    marketTitle.setAttribute('aria-expanded', marketExpanded ? 'true' : 'false');
+    marketTitle.addEventListener('click', () => {
+        marketExpanded = !marketExpanded;
+        try { globalThis.localStorage?.setItem(MARKET_EXPANDED_KEY, String(marketExpanded)); } catch { /* 本地存储不可用时只保留本次状态 */ }
+        applyMarketVisibility();
+    });
     const marketActions = el('div', 'nd-wb-market__actions');
     const marketImportBtn = createButton({
         label: '导入',
@@ -882,12 +895,38 @@ export function mountWorkbench(root, deps) {
     const marketGrid = el('div', 'nd-wb-market__grid');
     const marketEmpty = el('div', 'nd-empty-lab nd-wb-market__empty');
     marketEmpty.hidden = true;
-    market.append(marketHeader, marketSearchWrap, marketCategories, marketGrid, marketEmpty);
+    const marketBody = el('div', 'nd-wb-market__body');
+    marketBody.append(marketSearchWrap, marketCategories, marketGrid, marketEmpty);
+    market.append(marketHeader, marketBody);
+    market.hidden = !marketEnabled;
+    marketBody.hidden = !marketExpanded;
+    marketActions.hidden = !marketExpanded;
     // Prevent the tag button from taking focus away before the focused caption/caret is read.
     marketGrid.addEventListener('pointerdown', (event) => {
         if (event.target.closest?.('.nd-wb-market__tag')) event.preventDefault();
     });
     const marketSearchDebounce = bindDebouncedInput(marketSearch, renderMarket);
+
+    function applyMarketVisibility() {
+        market.hidden = !marketEnabled;
+        marketTitle.setAttribute('aria-expanded', marketExpanded ? 'true' : 'false');
+        marketBody.hidden = !marketExpanded;
+        marketActions.hidden = !marketExpanded;
+        if (!marketEnabled || !marketExpanded) {
+            marketLoadToken += 1;
+            marketCatalog = null;
+            marketCategories.replaceChildren();
+            marketGrid.replaceChildren();
+            marketEmpty.hidden = true;
+            return;
+        }
+        void loadMarketCatalog().catch(() => {
+            if (!destroyed && marketEnabled && marketExpanded) {
+                marketEmpty.hidden = false;
+                setText(marketEmpty, '读取标签超市失败');
+            }
+        });
+    }
 
     function marketSignatureOf(catalog) {
         let hash = 2166136261;
@@ -904,14 +943,35 @@ export function mountWorkbench(root, deps) {
         return { categories: path.slice(0, -1), name: path.at(-1) ?? String(entry?.key ?? '') };
     }
 
+    // 场景、角色与画师串共用标签目标映射，避免未识别时误写场景。
+    function marketTargetForInput(input) {
+        if (input && input === artistPositiveField?.input) return 'artist.positive';
+        if (input && input === artistNegativeField?.input) return 'artist.negative';
+        return captionEditor.getTargetForInput(input);
+    }
+
+    function marketInputForTarget(target) {
+        if (target === 'artist.positive') return artistPositiveField?.input || null;
+        if (target === 'artist.negative') return artistNegativeField?.input || null;
+        return captionEditor.getInputForTarget(target);
+    }
+
+    let lastMarketTarget = null;
+    function rememberMarketTarget(event) {
+        const target = marketTargetForInput(event.target);
+        if (target) lastMarketTarget = target;
+    }
+
     function marketSelected(entryId) {
         const record = manualTags.get(String(entryId));
         if (!record) return false;
-        const input = captionEditor.getInputForTarget(record.target);
+        const input = marketInputForTarget(record.target);
         return Boolean(input && record.fragment && input.value.includes(record.fragment));
     }
 
     async function loadMarketCatalog() {
+        if (!marketEnabled || !marketExpanded || destroyed) return;
+        const request = ++marketLoadToken;
         const store = deps?.marketCatalogStore;
         if (!store || typeof store.load !== 'function') {
             marketCatalog = null;
@@ -919,6 +979,7 @@ export function mountWorkbench(root, deps) {
             return;
         }
         const result = await store.load();
+        if (destroyed || request !== marketLoadToken || !marketEnabled || !marketExpanded) return;
         if (!result?.ok) {
             marketCatalog = null;
             renderMarket();
@@ -941,7 +1002,7 @@ export function mountWorkbench(root, deps) {
     function reconcileManualTags(persist = true) {
         let changed = false;
         for (const [id, record] of manualTags) {
-            const input = captionEditor.getInputForTarget(record.target);
+            const input = marketInputForTarget(record.target);
             if (!input || !record.fragment || !input.value.includes(record.fragment)) {
                 manualTags.delete(id);
                 changed = true;
@@ -955,7 +1016,7 @@ export function mountWorkbench(root, deps) {
         const record = manualTags.get(String(id));
         if (!record) return;
         manualTags.delete(String(id));
-        const input = captionEditor.getInputForTarget(record.target);
+        const input = marketInputForTarget(record.target);
         if (input) {
             const first = input.value.indexOf(record.fragment);
             if (first >= 0 && input.value.indexOf(record.fragment, first + 1) < 0) {
@@ -969,7 +1030,9 @@ export function mountWorkbench(root, deps) {
     function reapplyManualTags() {
         let missingTargets = 0;
         for (const [id, record] of [...manualTags]) {
-            const input = captionEditor.getInputForTarget(record.target);
+            // 重新生成只替换场景和角色，不重写画师串，不能重复追加已有标签。
+            if (String(record.target).startsWith('artist.')) continue;
+            const input = marketInputForTarget(record.target);
             const value = String(record.value ?? '').trim();
             if (!input || !value) {
                 manualTags.delete(id);
@@ -1005,6 +1068,7 @@ export function mountWorkbench(root, deps) {
     }
 
     function renderMarket() {
+        if (!marketEnabled || !marketExpanded || destroyed) return;
         marketCategories.replaceChildren();
         marketGrid.replaceChildren();
         marketEmpty.hidden = true;
@@ -1109,10 +1173,14 @@ export function mountWorkbench(root, deps) {
                     return;
                 }
                 let input = document.activeElement;
-                let target = captionEditor.getTargetForInput(input);
-                if (!target) {
+                let target = marketTargetForInput(input);
+                if (!target && lastMarketTarget) {
+                    target = lastMarketTarget;
+                    input = marketInputForTarget(target);
+                }
+                if (!target || !input) {
                     target = 'scene.positive';
-                    input = captionEditor.getInputForTarget(target);
+                    input = marketInputForTarget(target);
                     const end = input?.value.length ?? 0;
                     input?.setSelectionRange?.(end, end);
                 }
@@ -1302,6 +1370,10 @@ export function mountWorkbench(root, deps) {
             artistOverrideId = normalizedId;
             artistPositiveField?.setValue('');
             artistNegativeField?.setValue('');
+            for (const [id, record] of manualTags) {
+                if (String(record.target).startsWith('artist.')) manualTags.delete(id);
+            }
+            renderMarket();
         }
         const request = ++artistSelectionRequest;
         const positiveRevision = artistPositiveEditRevision;
@@ -2223,10 +2295,8 @@ export function mountWorkbench(root, deps) {
             if (artistOverrideId === undefined) void requestWorkbenchArtistSelection(nextId);
             void artistPicker.refresh();
         };
-        if (typeof deps.subscribeSettings === 'function') {
-            const unsubscribe = deps.subscribeSettings(syncArtist);
-            if (typeof unsubscribe === 'function') artistCleanups.push(unsubscribe);
-        } else {
+        syncArtistSettings = syncArtist;
+        if (typeof deps.subscribeSettings !== 'function') {
             const timer = setInterval(syncArtist, 400);
             artistCleanups.push(() => clearInterval(timer));
         }
@@ -2281,9 +2351,10 @@ export function mountWorkbench(root, deps) {
     function onWorkbenchInput(event) {
         if (event.target === artistPositiveField?.input) artistPositiveEditRevision += 1;
         if (event.target === artistNegativeField?.input) artistNegativeEditRevision += 1;
-        if (captionEditor.getTargetForInput(event.target)) reconcileManualTags();
+        if (marketTargetForInput(event.target)) reconcileManualTags();
         persistWorkbenchDraft();
     }
+    shell.addEventListener('focusin', rememberMarketTarget);
     shell.addEventListener('input', onWorkbenchInput);
     shell.addEventListener('change', persistWorkbenchDraft);
     if (!hasSavedArtistPositivePrompt || !hasSavedArtistNegativePrompt) {
@@ -2291,7 +2362,18 @@ export function mountWorkbench(root, deps) {
     }
 
     void loadLibraries();
-    void loadMarketCatalog();
+    applyMarketVisibility();
+    if (typeof deps.subscribeSettings === 'function') {
+        const unsubscribeMarket = deps.subscribeSettings(() => {
+            if (destroyed) return;
+            syncArtistSettings();
+            const enabled = loadSettings()?.enableTagMarket === true;
+            if (enabled === marketEnabled) return;
+            marketEnabled = enabled;
+            applyMarketVisibility();
+        });
+        if (typeof unsubscribeMarket === 'function') artistCleanups.push(unsubscribeMarket);
+    }
 
     const restoreReady = restorePreviews();
 
@@ -2392,6 +2474,7 @@ export function mountWorkbench(root, deps) {
             floorToggle.destroy();
             entrySearchDebounce.dispose();
             marketSearchDebounce.dispose();
+            shell.removeEventListener('focusin', rememberMarketTarget);
             for (const c of libControls) c.destroy();
             captionEditor.destroy();
             replaceToggle.destroy();

@@ -471,8 +471,24 @@
 :is(#nai-dbgen-root, .nd-root) .nd-wb-market__title {
     flex: 1 1 auto;
     min-width: 0;
-    font-size: var(--nd-fs-lg);
-    line-height: 1.25;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    color: var(--nd-text) !important;
+    font-family: inherit !important;
+    font-size: var(--nd-fs-lg) !important;
+    font-weight: 700;
+    line-height: 1.25 !important;
+    text-align: left;
+    cursor: pointer;
+}
+:is(#nai-dbgen-root, .nd-root) .nd-wb-market__body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+:is(#nai-dbgen-root, .nd-root) :is(.nd-wb-market, .nd-wb-market__body, .nd-wb-market__actions)[hidden] {
+    display: none !important;
 }
 :is(#nai-dbgen-root, .nd-root) .nd-wb-market__actions {
     display: flex;

@@ -182,6 +182,7 @@ export function followModelForArtistTag(settings, currentModel, tag) {
  *   自动出图：slot 写好后对尚未生图编号走出图（需求 4.12）。默认 false。已生图的不自动再出。
  * @property {boolean} naiParallel 同时请求多张。默认关，一张完成再请求下一张。
  * @property {boolean} hideFloatingBall 隐藏悬浮球。默认关。快捷回复栏仍可进配置和本楼生图。
+ * @property {boolean} enableTagMarket 是否在工作台显示标签超市，默认关闭。
  * @property {boolean} slotDoubleTapRegenerate
  *   打开后有图的 slot 隐藏「重新生成/重试」按钮，双击图片重新生成。默认关。
  * @property {boolean} confirmSlotRegenerate 双击重新生成前先确认。默认开。
@@ -229,6 +230,7 @@ export function defaultPluginSettings() {
         autoRenderSlots: false,
         naiParallel: false,
         hideFloatingBall: false,
+        enableTagMarket: false,
         slotDoubleTapRegenerate: false,
         confirmSlotRegenerate: true,
         maxImagesPerFloor: -1,
@@ -315,6 +317,7 @@ export function normalizePluginSettings(obj) {
         autoRenderSlots: obj.autoRenderSlots === true,
         naiParallel: obj.naiParallel === true,
         hideFloatingBall: obj.hideFloatingBall === true,
+        enableTagMarket: obj.enableTagMarket === true,
         slotDoubleTapRegenerate: obj.slotDoubleTapRegenerate === true,
         confirmSlotRegenerate: obj.confirmSlotRegenerate !== false,
         maxImagesPerFloor: Number.isInteger(Number(obj.maxImagesPerFloor)) && Number(obj.maxImagesPerFloor) >= 1
