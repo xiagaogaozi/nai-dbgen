@@ -1104,6 +1104,7 @@ export function mountFloatingBall(root, deps) {
         const target = /** @type {Node|null} */ (event.target);
         if (!target) return;
         if (ball.contains(target) || panelEl.contains(target)) return;
+        if (target instanceof Element && target.closest('[data-nd-fab-picker-portal]')) return;
         closePanels();
     }
 

@@ -455,3 +455,16 @@ button.nd-fab.nd-fab.nd-fab--busy {
     font-size: var(--nd-fs-sm, 11px) !important;
     line-height: 1.2 !important;
 }
+
+/* 快捷配置选择器列表脱离滚动容器，独立固定在视口内。 */
+.nd-root.nd-fab-picker-portal {
+    position: fixed;
+    z-index: 2147483002;
+    padding: 0;
+    background: transparent;
+}
+.nd-root.nd-fab-picker-portal[hidden] { display: none !important; }
+:is(#nai-dbgen-root, .nd-root).nd-fab-picker-portal .nd-picker__results {
+    position: static;
+    width: 100%;
+}

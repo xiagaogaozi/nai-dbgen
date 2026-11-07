@@ -122,6 +122,19 @@ export function mountCurrentPicker(root, deps) {
     shell.append(control, results);
     root.appendChild(shell);
 
+    // 快捷配置本身是滚动并裁切的浮层：把列表放在视口级浮层中，避免被祖先裁掉。
+    const fabPanel = shell.closest?.('.nd-fab-panel') || null;
+    let portal = null;
+    let positionFrame = 0;
+    if (fabPanel && document.body) {
+        portal = document.createElement('div');
+        portal.className = 'nd-root nd-fab-picker-portal';
+        portal.dataset.ndFabPickerPortal = 'true';
+        portal.hidden = true;
+        portal.appendChild(results);
+        document.body.appendChild(portal);
+    }
+
     /** @type {object[]} */
     let items = [];
     let destroyed = false;
@@ -150,12 +163,52 @@ export function mountCurrentPicker(root, deps) {
             });
     }
 
-    /**
-     * @param {boolean} open
-     */
+    function positionPortal() {
+        positionFrame = 0;
+        if (!portal || !resultsOpen || destroyed) return;
+        const rect = control.getBoundingClientRect();
+        const body = fabPanel?.querySelector?.('.nd-fab-panel__body');
+        const bounds = body?.getBoundingClientRect();
+        if (bounds && (rect.bottom <= bounds.top || rect.top >= bounds.bottom)) {
+            setResultsOpen(false);
+            syncControl();
+            return;
+        }
+        const vv = window.visualViewport;
+        const leftEdge = vv?.offsetLeft || 0;
+        const topEdge = vv?.offsetTop || 0;
+        const width = vv?.width || window.innerWidth;
+        const height = vv?.height || window.innerHeight;
+        const bottomEdge = topEdge + height;
+        const availableBelow = Math.max(0, bottomEdge - rect.bottom - 8);
+        const availableAbove = Math.max(0, rect.top - topEdge - 8);
+        const above = availableBelow < 160 && availableAbove > availableBelow;
+        const available = above ? availableAbove : availableBelow;
+        const portalWidth = Math.min(rect.width, Math.max(0, width - 12));
+        portal.style.left = `${Math.max(leftEdge + 6, Math.min(rect.left, leftEdge + width - portalWidth - 6))}px`;
+        portal.style.width = `${portalWidth}px`;
+        portal.style.top = above ? 'auto' : `${rect.bottom + 4}px`;
+        portal.style.bottom = above ? `${Math.max(0, window.innerHeight - rect.top + 4)}px` : 'auto';
+        results.style.maxHeight = `${Math.max(0, Math.min(320, available))}px`;
+    }
+
+    function schedulePortalPosition() {
+        if (!portal || !resultsOpen || positionFrame) return;
+        if (typeof requestAnimationFrame === 'function') {
+            positionFrame = requestAnimationFrame(positionPortal) || 0;
+        } else {
+            positionPortal();
+        }
+    }
+
+    /** @param {boolean} open */
     function setResultsOpen(open) {
         resultsOpen = open;
         results.classList.toggle('nd-hidden', !open);
+        if (portal) {
+            portal.hidden = !open;
+            if (open) positionPortal();
+        }
     }
 
     function activeItem() {
@@ -286,7 +339,7 @@ export function mountCurrentPicker(root, deps) {
     const onDocPointer = (event) => {
         if (!resultsOpen || destroyed) return;
         const target = event.target;
-        if (target instanceof Node && shell.contains(target)) return;
+        if (target instanceof Node && (shell.contains(target) || portal?.contains(target))) return;
         setResultsOpen(false);
         syncControl();
     };
@@ -299,6 +352,13 @@ export function mountCurrentPicker(root, deps) {
     });
     clearBtn.addEventListener('click', onClear);
     document.addEventListener('pointerdown', onDocPointer);
+    if (portal) {
+        document.addEventListener('scroll', schedulePortalPosition, true);
+        document.addEventListener('pointermove', schedulePortalPosition, true);
+        window.addEventListener('resize', schedulePortalPosition);
+        window.visualViewport?.addEventListener('resize', schedulePortalPosition);
+        window.visualViewport?.addEventListener('scroll', schedulePortalPosition);
+    }
 
     const boot = refresh();
 
@@ -312,6 +372,15 @@ export function mountCurrentPicker(root, deps) {
             searchDebounce.dispose();
             clearBtn.removeEventListener('click', onClear);
             document.removeEventListener('pointerdown', onDocPointer);
+            if (portal) {
+                document.removeEventListener('scroll', schedulePortalPosition, true);
+                document.removeEventListener('pointermove', schedulePortalPosition, true);
+                window.removeEventListener('resize', schedulePortalPosition);
+                window.visualViewport?.removeEventListener('resize', schedulePortalPosition);
+                window.visualViewport?.removeEventListener('scroll', schedulePortalPosition);
+                if (positionFrame && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(positionFrame);
+                portal.remove();
+            }
             tagFilter?.destroy();
             shell.remove();
             void boot;

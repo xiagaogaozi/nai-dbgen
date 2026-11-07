@@ -59,10 +59,10 @@ const TABS = [
     { id: 'artist', label: '画师串库', keepAlive: true, mount: mountArtistPanel },
     { id: 'api', label: 'API 库', mount: mountApiConfigPanel },
     { id: 'preset', label: '预设', mount: mountPresetPanel },
-    { id: 'prompts', label: '生图提示词', mount: mountPromptsPanel },
     { id: 'trigger', label: '常规设置', mount: mountTriggerPanel },
     { id: 'naiParams', label: '出图参数', mount: mountNaiParamsPanel },
     { id: WORKBENCH_TAB_ID, label: '生成工作台', keepAlive: true, mount: mountWorkbenchTab },
+    { id: 'prompts', label: '生图提示词', mount: mountPromptsPanel },
     { id: 'storage', label: '存储管理', mount: mountStoragePanel },
     { id: 'debug', label: '解析调试', mount: mountDebugPanel },
 ];
