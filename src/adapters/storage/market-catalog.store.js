@@ -54,6 +54,12 @@ export function createMarketCatalogStore(serverFiles) {
             const valid = validateMarketCatalog(result.value);
             return valid.ok ? result : Err(configError({ code: 'MARKET_CATALOG_INVALID', message: valid.message, hint: '请通过工作台“导入”载入审核完成的标签超市文件' }));
         },
+        async clear() {
+            if (typeof serverFiles.remove !== 'function') {
+                return Err(configError({ code: 'MARKET_CATALOG_CLEAR_UNAVAILABLE', message: '标签超市清空功能不可用' }));
+            }
+            return serverFiles.remove(MARKET_CATALOG_FILE);
+        },
         async replace(data) {
             const valid = validateMarketCatalog(data);
             if (!valid.ok) return Err(configError({ code: 'MARKET_CATALOG_INVALID', message: valid.message, hint: '请修正标签超市文件后重试' }));

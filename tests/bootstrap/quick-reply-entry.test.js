@@ -124,7 +124,7 @@ describe('quick reply entry', () => {
         assert.equal(api.getQrByLabel(QR_SET_NAME, '本楼生图').message, '/naifloor');
     });
 
-    it('删掉多出来的工作台、画师串，管理台保留', async () => {
+    it('删除退役的工作台、画师串和管理台快捷回复', async () => {
         const set = {
             name: QR_SET_NAME,
             disableSend: false,
@@ -140,10 +140,10 @@ describe('quick reply entry', () => {
         };
         const api = fakeApi({ set, linked: true });
         await ensureQuickReplyEntry(api);
-        assert.equal(api.calls.deleteQuickReply, 3);
+        assert.equal(api.calls.deleteQuickReply, 4);
         assert.equal(api.getQrByLabel(QR_SET_NAME, '数据库生图'), undefined);
         assert.equal(api.getQrByLabel(QR_SET_NAME, '工作台'), undefined);
-        assert.equal(api.getQrByLabel(QR_SET_NAME, '管理台').message, '/naimgr');
+        assert.equal(api.getQrByLabel(QR_SET_NAME, '管理台'), undefined);
         assert.equal(api.getQrByLabel(QR_SET_NAME, '画师串'), undefined);
         assert.equal(api.getQrByLabel(QR_SET_NAME, '本楼生图').message, '/naifloor');
         assert.equal(api.getQrByLabel(QR_SET_NAME, '快捷配置').message, '/naicfg');

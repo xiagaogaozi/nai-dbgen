@@ -35,7 +35,7 @@ import { reconcileParamsForModel } from '../domain/nai/param-options.js';
 const log = createLogger('bootstrap/lifecycle');
 
 /** @type {string} */
-export const PLUGIN_VERSION = '0.2.50';
+export const PLUGIN_VERSION = '0.2.51';
 
 /** @type {string} */
 export const PUBLIC_API_NAME = 'NaiDbGen';
@@ -371,6 +371,7 @@ function panelDeps(container) {
             tagRepo: container.repos.tag,
             marketCatalogStore: container.marketCatalogStore,
             artistRepo: container.repos.artist,
+            characterRepo: container.repos.character,
             artistFileUrl: container.artistFileUrl,
             loadSettings: container.loadSettings,
             subscribeSettings: (fn) => container.settingsStore.onChange(fn),
@@ -1511,6 +1512,8 @@ export async function activate(opts = {}) {
         // D56：斜杠放在所有可能失败步骤之后；回调仍活查 container 防 dispose 僵尸
         registerSlashCommands(container.host);
         installQuickReplyEntry();
+        installWandEntry();
+        rollback.push(removeWandEntry);
 
         // 悬浮球：放在可能失败步骤之后；仍挂 rollback 防后续扩展踩坑
         mountFloatingBallUi();
@@ -1557,10 +1560,41 @@ export async function activate(opts = {}) {
     }
 }
 
+/** 魔法棒入口沿用酒馆的菜单结构，点击时读取当前容器。 */
+function installWandEntry() {
+    if (typeof document === 'undefined') return;
+    const menu = document.getElementById('extensionsMenu');
+    if (!menu || document.getElementById('nai-dbgen-wand-entry')) return;
+    const item = document.createElement('div');
+    item.id = 'nai-dbgen-wand-entry';
+    item.className = 'list-group-item flex-container flexGap5';
+    item.setAttribute('role', 'button');
+    item.tabIndex = 0;
+    const icon = document.createElement('div');
+    icon.className = 'fa-solid fa-table-columns extensionsMenuExtensionButton';
+    const label = document.createElement('span');
+    label.textContent = '酒馆数据库生图';
+    item.append(icon, label);
+    const open = () => {
+        const container = runtime.container;
+        if (container) void openManagementUi(container).catch((error) => safeToast(container.host, 'error', error?.message || '打开管理台失败'));
+    };
+    item.addEventListener('click', open);
+    item.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); }
+    });
+    menu.appendChild(item);
+}
+
+function removeWandEntry() {
+    if (typeof document !== 'undefined') document.getElementById('nai-dbgen-wand-entry')?.remove();
+}
+
 /**
  * @returns {Promise<void>}
  */
 async function disposeInternal() {
+    removeWandEntry();
     stopFloorBusyWatch();
     clearTheme();
     runtime.editorCleanup?.();

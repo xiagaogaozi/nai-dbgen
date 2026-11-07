@@ -124,6 +124,16 @@ export async function openPanelShell(deps, initialTab) {
     /** @type {HTMLButtonElement[]} */
     const tabButtons = [];
 
+    const panelDeps = {
+        ...deps,
+        async importToWorkbench(payload) {
+            activate(WORKBENCH_TAB_ID);
+            const handle = keptPanels.get(WORKBENCH_TAB_ID)?.handle;
+            if (!handle?.importFromPanel) throw new Error('生成工作台不可用');
+            return handle.importFromPanel(payload);
+        },
+    };
+
     /**
      * @param {string} tabId
      */
@@ -148,7 +158,7 @@ export async function openPanelShell(deps, initialTab) {
                 const panelRoot = document.createElement('div');
                 panelRoot.className = `nd-shell__panel nd-shell__panel--${tab.id}`;
                 body.appendChild(panelRoot);
-                keptPanels.set(tab.id, { root: panelRoot, handle: tab.mount(panelRoot, deps) });
+                keptPanels.set(tab.id, { root: panelRoot, handle: tab.mount(panelRoot, panelDeps) });
             } else {
                 const kept = keptPanels.get(tab.id);
                 try {
@@ -163,7 +173,7 @@ export async function openPanelShell(deps, initialTab) {
         panelRoot.className = `nd-shell__panel nd-shell__panel--${tab.id}`;
         body.appendChild(panelRoot);
         activePanelRoot = panelRoot;
-        activePanel = tab.mount(panelRoot, deps);
+        activePanel = tab.mount(panelRoot, panelDeps);
     }
 
     for (const tab of TABS) {

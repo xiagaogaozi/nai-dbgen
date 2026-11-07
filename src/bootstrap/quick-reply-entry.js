@@ -25,13 +25,14 @@ export const QR_SET_NAME = '酒馆数据库生图';
  */
 const RETIRED_BUTTONS = Object.freeze([
     { label: '数据库生图', message: '/naimgr' },
+    { label: '管理台', message: '/naimgr' },
     { label: '工作台', message: '/naiwb' },
     { label: '画师串', message: '/naiartist' },
     { label: '配置', message: '/naicfg' },
 ]);
 
 /**
- * 三个：双击悬浮球的本楼生图、单击悬浮球的配置面板、管理台（隐藏悬浮球后从这里进）。
+ * 两个：双击悬浮球的本楼生图、单击悬浮球的快捷配置。
  * @type {ReadonlyArray<{ label: string, message: string, title: string, icon: string }>}
  */
 export const QR_BUTTONS = Object.freeze([
@@ -46,12 +47,6 @@ export const QR_BUTTONS = Object.freeze([
         message: '/naicfg',
         title: '打开快捷配置面板，和单击悬浮球相同',
         icon: 'fa-sliders',
-    },
-    {
-        label: '管理台',
-        message: '/naimgr',
-        title: '打开管理台',
-        icon: 'fa-table-columns',
     },
 ]);
 

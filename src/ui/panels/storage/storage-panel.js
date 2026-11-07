@@ -4,6 +4,8 @@
 
 import { createButton, createInlineError, createNumberField } from '../../common/controls.js';
 import { openSlotImageViewer } from '../../common/image-viewer.js';
+import { readPngCaption } from '../../common/png-caption.js';
+import { matchImageArtist } from '../../common/image-artist-match.js';
 import { confirmDanger, el, setText, toast, settingsApi } from '../_lib/panel-kit.js';
 
 /**
@@ -168,6 +170,37 @@ export function mountStoragePanel(root, deps) {
             const title = `${row.pinned ? '画师参考 · ' : ''}${formatBytes(row.size)}`;
             setText(cap, title);
             card.appendChild(cap);
+            const reuse = document.createElement('button');
+            reuse.type = 'button';
+            reuse.className = 'nd-button nd-button--primary nd-cache-card__reuse';
+            reuse.textContent = '复用到工作台';
+            reuse.addEventListener('click', async (event) => {
+                event.stopPropagation();
+                if (reuse.disabled) return;
+                reuse.disabled = true;
+                try {
+                    if (!deps.importToWorkbench || !imageRepo.getBlob) throw new Error('工作台或图片读取功能不可用');
+                    const result = await imageRepo.getBlob(row.id);
+                    if (!result?.ok || !result.value) throw new Error('读取图片失败');
+                    const caption = await readPngCaption(result.value);
+                    const listedArtists = await deps.repos?.artist?.list?.();
+                    if (listedArtists && !listedArtists.ok) throw new Error('画师串库读取失败，未导入图片');
+                    const matched = matchImageArtist(caption, listedArtists?.value || []);
+                    if (destroyed) return;
+                    await deps.importToWorkbench(matched.artist
+                        ? { artistId: matched.artist.id, caption: matched.caption }
+                        : { caption });
+                    if (!matched.artist) {
+                        toast(host, 'warning', '未匹配到唯一的画师串，已将完整提示词导入场景。工作台原有画师串未改变，请检查是否重复。');
+                    }
+                } catch (error) {
+                    toast(host, 'error', error?.message || '图片提示词导入失败');
+                } finally {
+                    reuse.disabled = false;
+                }
+            });
+            reuse.addEventListener('keydown', (event) => event.stopPropagation());
+            card.appendChild(reuse);
             gallery.appendChild(card);
             const urlR = await imageRepo.getUrl(row.id);
             if (destroyed) return;

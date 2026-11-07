@@ -308,6 +308,15 @@
     margin-bottom: 0.45em;
 }
 
+:is(#nai-dbgen-root, .nd-root) .nd-wb-caption__char-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-wb-caption__char-head { flex-wrap: wrap; }
+
 :is(#nai-dbgen-root, .nd-root) .nd-wb-caption__coords {
     display: grid;
     grid-template-columns: 1fr 1fr;

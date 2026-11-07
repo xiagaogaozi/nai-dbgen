@@ -853,6 +853,7 @@
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-cache-card {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -882,6 +883,21 @@
     color: var(--nd-muted);
     word-break: break-all;
 }
+
+/* 卡片右下角复用入口，不改变图片或卡片的尺寸。 */
+:is(#nai-dbgen-root, .nd-root) .nd-button.nd-cache-card__reuse {
+    position: absolute;
+    right: 8px;
+    bottom: 6px;
+    height: 24px !important;
+    min-height: 24px !important;
+    padding: 0 8px !important;
+    border-radius: var(--nd-radius-xs) !important;
+    font-size: var(--nd-fs-sm) !important;
+    white-space: nowrap;
+}
+:is(#nai-dbgen-root, .nd-root) .nd-cache-card__cap { padding-right: 92px; }
+:is(#nai-dbgen-root, .nd-root) .nd-cache-card__reuse:disabled { opacity: .5; }
 
 /* 常规设置 · 快速配置悬浮窗内容显隐器：整组一张卡片，行间只用分隔线 */
 :is(#nai-dbgen-root, .nd-root) .nd-quick-vis {

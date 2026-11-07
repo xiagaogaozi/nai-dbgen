@@ -11,6 +11,8 @@
 
 import {
     createButton,
+    createField,
+    createSelect,
     createMiniAction,
     createToggle,
     createCheckbox,
@@ -23,13 +25,17 @@ import { createNaiParamsForm } from '../common/nai-params-form.js';
 import { mountCurrentPicker } from '../common/current-picker.js';
 import { openModal } from '../common/modal.js';
 import { downloadJson } from '../common/import-export.js';
-import { openImportExportModal } from '../panels/_lib/panel-kit.js';
+import { confirmDanger, openImportExportModal } from '../panels/_lib/panel-kit.js';
 import { validateMarketCatalog } from '../../adapters/storage/market-catalog.store.js';
 import {
     parsePromptText,
 } from '../common/prompt-text.js';
 import { openSlotImageViewer } from '../common/image-viewer.js';
 import { emptyNaiCaption } from '../../domain/model/nai-params.js';
+import { createCharacter } from '../../domain/model/character.js';
+import { newId } from '../../infra/id.js';
+import { nowIso } from '../../infra/clock.js';
+import { parseCharacterFeatures, formatCharacterFeatures } from '../common/character-features.js';
 import { defaultImg2ImgNoise, defaultImg2ImgStrength } from '../../domain/nai/img2img.js';
 import { normalizeTagLibraryKind } from '../../domain/model/tag.js';
 import { parseCompositionKey } from '../../domain/model/composition-key.js';
@@ -819,6 +825,8 @@ export function mountWorkbench(root, deps) {
             ? draft.caption
             : emptyNaiCaption(),
         onCopyError: reportCopyError,
+        onSaveCharacter: (mode, prompts) => { void openCharacterSaveModal(mode, prompts); },
+        onImportCharacter: () => { void openCharacterImportModal(); },
         onCharacterRemove: (removedIndex) => {
             for (const [id, record] of manualTags) {
                 const match = /^character\.(\d+)\.(positive|negative)$/.exec(record.target);
@@ -854,7 +862,12 @@ export function mountWorkbench(root, deps) {
         variant: 'ghost',
         onClick: () => { void exportMarket(); },
     });
-    marketActions.append(marketImportBtn, marketExportBtn);
+    const marketClearBtn = createButton({
+        label: '清空',
+        variant: 'danger',
+        onClick: () => { void clearMarket(); },
+    });
+    marketActions.append(marketImportBtn, marketExportBtn, marketClearBtn);
     marketHeader.append(marketTitle, marketActions);
     // 0.2.49：和其他搜索框一样包一层 .nd-search-field，input 不带类名
     const marketSearchWrap = el('div', 'nd-search-field');
@@ -1115,6 +1128,33 @@ export function mountWorkbench(root, deps) {
         if (!visible.length && (query || !hasChildren)) {
             marketEmpty.hidden = false;
             setText(marketEmpty, query ? '没有匹配的标签' : '该分类暂无标签');
+        }
+    }
+
+    async function clearMarket() {
+        const store = deps?.marketCatalogStore;
+        if (!store || typeof store.clear !== 'function') {
+            toast(host, 'error', '标签超市清空功能不可用');
+            return;
+        }
+        const confirmed = await confirmDanger({ host }, '将清空服务器上标签超市的全部分类和标签，无法撤销。需要保留时请先导出备份。已写入提示词的内容不会删除。确定清空吗？');
+        if (!confirmed || destroyed) return;
+        marketClearBtn.disabled = true;
+        try {
+            const result = await store.clear();
+            if (!result?.ok) throw new Error(result?.error?.message || '清空标签超市失败');
+            if (destroyed) return;
+            marketCatalog = null;
+            marketSignature = '';
+            marketPath = [];
+            manualTags.clear();
+            renderMarket();
+            persistWorkbenchDraft();
+            toast(host, 'success', '标签超市已清空');
+        } catch (error) {
+            toast(host, 'error', error?.message || '清空标签超市失败');
+        } finally {
+            marketClearBtn.disabled = false;
         }
     }
 
@@ -1803,6 +1843,160 @@ export function mountWorkbench(root, deps) {
         });
     }
 
+    function importCharacterFeatures(features) {
+        const caption = captionEditor.getCaption();
+        const pos = caption.v4_prompt.caption.char_captions;
+        const neg = caption.v4_negative_prompt.caption.char_captions;
+        if (Math.max(pos.length, neg.length) >= WORKBENCH_MAX_CHARACTERS) {
+            throw new Error(`工作台最多支持 ${WORKBENCH_MAX_CHARACTERS} 个角色，请先删除一个`);
+        }
+        const parsed = parseCharacterFeatures(features);
+        const centers = [{ x: 0.5, y: 0.5 }];
+        pos.push({ char_caption: parsed.positive, centers });
+        neg.push({ char_caption: parsed.negative, centers });
+        captionEditor.setCaption(caption);
+        persistWorkbenchDraft();
+    }
+
+    async function openCharacterImportModal() {
+        const repo = deps?.characterRepo;
+        if (!repo?.listGroups || !repo?.listByGroup || !repo?.get) {
+            toast(host, 'error', '角色库不可用');
+            return;
+        }
+        let result;
+        try { result = await repo.listGroups(); }
+        catch { toast(host, 'error', '读取角色组失败'); return; }
+        if (!result?.ok) { toast(host, 'error', '读取角色组失败'); return; }
+        const groups = result.value || [];
+        if (!groups.length) { toast(host, 'warning', '角色库没有角色组'); return; }
+        const form = el('div', 'nd-form');
+        const error = createInlineError();
+        const group = createSelect({ label: '角色组', options: groups.map((g) => ({ value: g.id, label: g.name })) });
+        const character = createSelect({ label: '角色', options: [] });
+        const hint = el('p', 'nd-muted');
+        setText(hint, '导入所选角色的固定特征，新增为工作台角色，不覆盖已有内容。');
+        form.append(group.el, character.el, hint, error.el);
+        let request = 0;
+        async function loadCharacters() {
+            const seq = ++request;
+            error.clear();
+            character.setOptions([]);
+            try {
+                const rows = await repo.listByGroup(group.getValue());
+                if (seq !== request) return;
+                if (!rows?.ok) throw new Error('读取角色失败');
+                character.setOptions((rows.value || []).map((c) => ({ value: c.id, label: c.name })));
+                if (!(rows.value || []).length) error.setMessage('该角色组没有角色');
+            } catch (cause) { if (seq === request) error.setMessage(cause?.message || '读取角色失败'); }
+        }
+        group.el.querySelector('select')?.addEventListener('change', () => { void loadCharacters(); });
+        const actions = el('div', 'nd-form__actions');
+        let modal = null;
+        let importing = false;
+        const cancel = createButton({ label: '取消', variant: 'ghost', onClick: () => modal?.destroy() });
+        const confirm = createButton({
+            label: '导入', variant: 'primary',
+            onClick: async () => {
+                if (importing) return;
+                error.clear();
+                const id = character.getValue();
+                const groupId = group.getValue();
+                if (!id) { error.setMessage('请选择角色'); return; }
+                importing = true;
+                confirm.disabled = true;
+                try {
+                    const found = await repo.get(id);
+                    if (!found?.ok || !found.value || found.value.groupId !== groupId) throw new Error('角色不存在或已移动，请重新选择');
+                    importCharacterFeatures(found.value.fixedFeatures);
+                    modal?.destroy();
+                } catch (cause) { error.setMessage(cause?.message || '导入角色失败'); }
+                finally { importing = false; confirm.disabled = false; }
+            },
+        });
+        actions.append(cancel, confirm);
+        form.appendChild(actions);
+        try {
+            modal = await openModal({ host }, { title: '导入角色', element: form, wide: true });
+            await loadCharacters();
+        } catch (cause) { toast(host, 'error', cause?.message || '打开角色选择窗口失败'); }
+    }
+
+    async function openCharacterSaveModal(mode, prompts) {
+        const repo = deps?.characterRepo;
+        if (!repo?.listGroups || !repo?.listByGroup || !repo?.put) {
+            toast(host, 'error', '角色库不可用');
+            return;
+        }
+        let groupsResult;
+        try { groupsResult = await repo.listGroups(); }
+        catch { toast(host, 'error', '读取角色组失败'); return; }
+        if (!groupsResult?.ok) { toast(host, 'error', '读取角色组失败'); return; }
+        const groups = groupsResult.value || [];
+        if (!groups.length) { toast(host, 'warning', '请先在角色库中新建角色组'); return; }
+        const form = el('div', 'nd-form');
+        const error = createInlineError();
+        const group = createSelect({ label: '角色组', options: groups.map((g) => ({ value: g.id, label: g.name })) });
+        const character = createSelect({ label: '已有角色', options: [] });
+        const name = createField({ label: '新角色名称', value: '' });
+        const hint = el('p', 'nd-muted');
+        setText(hint, mode === 'update' ? '保存会替换该角色的固定特征，其他信息不变。' : '将工作台的正负面提示词保存为新角色的固定特征。');
+        let request = 0;
+        async function loadCharacters() {
+            const seq = ++request;
+            error.clear();
+            const result = await repo.listByGroup(group.getValue());
+            if (seq !== request) return;
+            if (!result?.ok) { character.setOptions([]); error.setMessage('读取角色失败'); return; }
+            character.setOptions((result.value || []).map((c) => ({ value: c.id, label: c.name })));
+        }
+        group.el.querySelector('select')?.addEventListener('change', () => { if (mode === 'update') void loadCharacters(); });
+        form.append(group.el, mode === 'update' ? character.el : name.el, hint, error.el);
+        const actions = el('div', 'nd-form__actions');
+        let modal = null;
+        let saving = false;
+        const cancel = createButton({ label: '取消', variant: 'ghost', onClick: () => modal?.destroy() });
+        const save = createButton({
+            label: mode === 'update' ? '确认覆盖' : '确认新建', variant: 'primary',
+            onClick: async () => {
+                if (saving) return;
+                error.clear();
+                const groupId = group.getValue();
+                const characterId = character.getValue();
+                const nameValue = name.getValue().trim();
+                if (!groupId || (mode === 'update' && !characterId) || (mode === 'create' && !nameValue)) {
+                    error.setMessage(mode === 'update' ? '请选择角色组和角色' : '请选择角色组并填写角色名称');
+                    return;
+                }
+                saving = true;
+                save.disabled = true;
+                try {
+                    let entity;
+                    const fixedFeatures = formatCharacterFeatures(prompts);
+                    if (mode === 'update') {
+                        const found = await repo.get(characterId);
+                        if (!found?.ok || !found.value || found.value.groupId !== groupId) throw new Error('角色不存在或已移动，请重新选择');
+                        entity = { ...found.value, fixedFeatures, updatedAt: nowIso() };
+                    } else {
+                        entity = createCharacter({ groupId, name: nameValue, fixedFeatures }, { id: newId('ch'), now: nowIso() });
+                    }
+                    const result = await repo.put(entity);
+                    if (!result?.ok) throw new Error(result?.error?.message || '保存角色失败');
+                    modal?.destroy();
+                    toast(host, 'success', mode === 'update' ? '已保存到角色' : '角色已新建');
+                } catch (cause) {
+                    error.setMessage(cause?.message || '保存角色失败');
+                } finally { saving = false; save.disabled = false; }
+            },
+        });
+        actions.append(cancel, save);
+        form.appendChild(actions);
+        try {
+            modal = await openModal({ host }, { title: mode === 'update' ? '保存到已有角色' : '新建角色', element: form, wide: true });
+            if (mode === 'update') await loadCharacters();
+        } catch (cause) { toast(host, 'error', cause?.message || '打开角色保存窗口失败'); }
+    }
+
     async function openArtistSaveModal(mode) {
         const saveService = deps?.artistDraftService;
         if (!saveService || typeof saveService.save !== 'function') {
@@ -2159,6 +2353,23 @@ export function mountWorkbench(root, deps) {
         showPreviews(images);
     }
     return {
+        async importFromPanel(payload) {
+            if (destroyed) throw new Error('工作台已关闭');
+            if (payload?.artistId != null) {
+                const artist = await requestWorkbenchArtistSelection(payload.artistId);
+                if (!artist) throw new Error('画师串不存在，无法导入');
+                await artistPicker?.refresh();
+            }
+            if (payload?.characterFeatures != null) {
+                importCharacterFeatures(payload.characterFeatures);
+            }
+            if (payload?.caption) {
+                captionEditor.setCaption(payload.caption);
+                manualTags.clear();
+                renderMarket();
+                persistWorkbenchDraft();
+            }
+        },
         destroy() {
             if (destroyed) return;
             persistWorkbenchDraft();

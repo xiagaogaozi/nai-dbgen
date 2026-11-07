@@ -632,6 +632,25 @@ export function mountArtistPanel(root, deps) {
         actions.append(
             createButton({ label: '取消', variant: 'ghost', onClick: () => closeModal() }),
             activateBtn,
+            createButton({
+                label: '导入工作台',
+                variant: 'ghost',
+                onClick: async () => {
+                    if (typeof deps.importToWorkbench !== 'function') {
+                        err.setMessage('生成工作台不可用');
+                        return;
+                    }
+                    const saved = await persistDraft();
+                    if (!saved) return;
+                    try {
+                        closeModal();
+                        await deps.importToWorkbench({ artistId: saved.id });
+                        toast(host, 'success', '已导入工作台');
+                    } catch (error) {
+                        toast(host, 'error', error?.message || '导入工作台失败');
+                    }
+                },
+            }),
             previewBtn,
             createButton({
                 label: '保存',

@@ -322,6 +322,22 @@ export function mountCharacterPanel(root, deps) {
         actions.append(
             createButton({ label: '取消', variant: 'ghost', onClick: () => modal.destroy() }),
             createButton({
+                label: '导入工作台',
+                variant: 'ghost',
+                onClick: async () => {
+                    if (typeof deps.importToWorkbench !== 'function') {
+                        modal.setError('生成工作台不可用');
+                        return;
+                    }
+                    try {
+                        await deps.importToWorkbench({ characterFeatures: dna.getValue() });
+                        modal.destroy();
+                    } catch (error) {
+                        modal.setError(error?.message || '导入失败');
+                    }
+                },
+            }),
+            createButton({
                 label: '保存',
                 variant: 'primary',
                 onClick: async () => {

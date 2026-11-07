@@ -135,7 +135,13 @@ export function mountCaptionEditor(root, opts) {
                 opts?.onCharacterRemove?.(idx);
             },
         });
-        head.append(label, removeBtn);
+        const actions = el('div', 'nd-wb-caption__char-actions');
+        actions.append(
+            createButton({ label: '保存到已有角色', variant: 'ghost', onClick: () => opts?.onSaveCharacter?.('update', { positive: positive.getValue(), negative: negative.getValue() }) }),
+            createButton({ label: '新建角色', variant: 'ghost', onClick: () => opts?.onSaveCharacter?.('create', { positive: positive.getValue(), negative: negative.getValue() }) }),
+            removeBtn,
+        );
+        head.append(label, actions);
         const coords = el('div', 'nd-wb-caption__coords');
         coords.append(x.el, y.el);
         const prompts = el('div', 'nd-wb-caption__prompt-pair');
@@ -161,11 +167,20 @@ export function mountCaptionEditor(root, opts) {
         onClick: () => addRow(emptyCharacterRow()),
     });
 
+    const importBtn = createButton({
+        label: '导入角色',
+        variant: 'ghost',
+        onClick: () => opts?.onImportCharacter?.(),
+    });
+
     function syncAddEnabled() {
         addBtn.disabled = rows.length >= WORKBENCH_MAX_CHARACTERS;
+        importBtn.disabled = rows.length >= WORKBENCH_MAX_CHARACTERS;
     }
 
-    charsHead.appendChild(addBtn);
+    const charActions = el('div', 'nd-wb-caption__char-actions');
+    charActions.append(addBtn, importBtn);
+    charsHead.appendChild(charActions);
 
     for (const row of initial.characters) {
         addRow(row);
