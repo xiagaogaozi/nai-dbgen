@@ -2403,6 +2403,7 @@ dialog.nd-image-only > .nd-image-only__img {
     flex: 1 1 auto;
     object-fit: contain;
     cursor: default;
+    touch-action: manipulation;
 }
 .nd-image-only__error { color: #fff; }
 .nd-image-only__error[hidden] { display: none; }

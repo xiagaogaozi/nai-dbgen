@@ -963,3 +963,21 @@
 :is(#nai-dbgen-root, .nd-root) .nd-artist-bulk[hidden] {
     display: none;
 }
+
+/* 存储管理：选择操作不改变图片卡片尺寸。 */
+:is(#nai-dbgen-root, .nd-root) .nd-cache-selection,
+:is(#nai-dbgen-root, .nd-root) .nd-cache-selection__bulk { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+:is(#nai-dbgen-root, .nd-root) .nd-cache-selection__bulk[hidden],
+:is(#nai-dbgen-root, .nd-root) .nd-cache-card__reuse[hidden],
+:is(#nai-dbgen-root, .nd-root) .nd-cache-card__select[hidden] { display:none !important; }
+:is(#nai-dbgen-root, .nd-root) .nd-cache-card__select {
+    position:absolute !important; z-index:2; top:12px; right:12px;
+    appearance:none !important; -webkit-appearance:none !important;
+    width:18px !important; height:18px !important; min-height:0 !important;
+    padding:0 !important; margin:0 !important; border:1px solid var(--nd-accent) !important;
+    border-radius:var(--nd-radius-xs) !important; background:var(--nd-surface) !important;
+    display:grid; place-content:center; cursor:pointer;
+}
+:is(#nai-dbgen-root, .nd-root) .nd-cache-card__select:checked { background:var(--nd-accent) !important; }
+:is(#nai-dbgen-root, .nd-root) .nd-cache-card__select::before { content:""; width:10px; height:10px; transform:scale(0); box-shadow:inset 1em 1em var(--nd-on-accent) !important; clip-path:polygon(14% 44%,0 65%,50% 100%,100% 16%,80% 0%,43% 62%); }
+:is(#nai-dbgen-root, .nd-root) .nd-cache-card__select:checked::before { transform:scale(1); }

@@ -35,7 +35,7 @@ import { reconcileParamsForModel } from '../domain/nai/param-options.js';
 const log = createLogger('bootstrap/lifecycle');
 
 /** @type {string} */
-export const PLUGIN_VERSION = '0.2.53';
+export const PLUGIN_VERSION = '0.2.54';
 
 /** @type {string} */
 export const PUBLIC_API_NAME = 'NaiDbGen';
@@ -986,6 +986,11 @@ async function mountOneSlot(container, slotEl, messageId, slotId) {
                 force: opts?.force === true,
             }),
             getRecord: (mid, sid) => recordCache.get(recordKey(mid, sid)) ?? null,
+            getSessionId: () => container.repos.slot.getSessionId?.() || null,
+            getImageBlob: async (imageRef) => {
+                const r = await container.repos.image.getBlob(imageRef);
+                return r?.ok ? (r.value ?? null) : null;
+            },
             getSlotMeta: (mid, sid) => slotMetaCache.get(recordKey(mid, sid)) ?? null,
             getImageUrl: async (imageRef) => {
                 const r = await container.repos.image.getUrl(imageRef);

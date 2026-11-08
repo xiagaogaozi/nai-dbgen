@@ -4,6 +4,7 @@
 
 import { createButton, createInlineError, createNumberField } from '../../common/controls.js';
 import { openSlotImageViewer } from '../../common/image-viewer.js';
+import { detectImageMime, imageExtension, requestImageDownload } from '../../common/image-download.js';
 import { readPngCaption } from '../../common/png-caption.js';
 import { matchImageArtist } from '../../common/image-artist-match.js';
 import { confirmDanger, el, setText, toast, settingsApi } from '../_lib/panel-kit.js';
@@ -95,6 +96,36 @@ export function mountStoragePanel(root, deps) {
     const cacheResult = el('p', 'nd-storage-result nd-muted');
     cacheResult.hidden = true;
     const gallery = el('div', 'nd-cache-gallery');
+    let selecting = false;
+    let galleryItems = [];
+    const selectedIds = new Set();
+    const selectionBar = el('div', 'nd-cache-selection');
+    const bulk = el('div', 'nd-cache-selection__bulk');
+    bulk.hidden = true;
+    const counter = el('span', 'nd-muted');
+    const selectButton = createButton({ label: '选择', variant: 'ghost', onClick: () => {
+        selecting = !selecting;
+        if (!selecting) selectedIds.clear();
+        selectButton.textContent = selecting ? '完成' : '选择';
+        bulk.hidden = !selecting;
+        syncSelection();
+    }});
+    const selectAll = createButton({ label: '全选', variant: 'ghost', onClick: () => { for (const row of galleryItems) selectedIds.add(String(row.id)); syncSelection(); } });
+    const selectNone = createButton({ label: '取消选择', variant: 'ghost', onClick: () => { selectedIds.clear(); syncSelection(); } });
+    const download = createButton({ label: '下载所选', variant: 'primary', onClick: () => {
+        let sent = 0; const failed = [];
+        for (const row of galleryItems) {
+            if (!selectedIds.has(String(row.id))) continue;
+            try {
+                if (!row.url || !imageExtension(row.mimeType, row.url)) throw new Error('图片不可用或类型未知');
+                requestImageDownload(row.url, row.mimeType); sent++;
+            } catch { failed.push(String(row.id)); }
+        }
+        if (failed.length) toast(host, 'warning', `${failed.length} 张图片无法读取或下载`);
+        if (sent) toast(host, 'info', `已请求下载 ${sent} 张；如浏览器询问，请允许下载多个文件，并检查下载列表`);
+    }});
+    bulk.append(selectAll, selectNone, download, counter);
+    selectionBar.append(selectButton, bulk);
     const trimBtn = createButton({
         label: '清理图片缓存',
         variant: 'danger',
@@ -105,6 +136,7 @@ export function mountStoragePanel(root, deps) {
         cacheErr.el,
         cacheHint,
         statsEl,
+        selectionBar,
         gallery,
         limitField.el,
         trimBtn,
@@ -143,6 +175,20 @@ export function mountStoragePanel(root, deps) {
         }
     }
 
+    function syncSelection() {
+        bulk.hidden = !selecting;
+        counter.textContent = `已选 ${selectedIds.size}`;
+        const waiting = galleryItems.some((row) => selectedIds.has(String(row.id)) && row.loading);
+        download.disabled = selectedIds.size === 0 || waiting;
+        for (const row of galleryItems) {
+            if (!row.card || !row.checkbox) continue;
+            row.checkbox.hidden = !selecting;
+            row.checkbox.checked = selectedIds.has(String(row.id));
+            row.reuse.hidden = selecting;
+            row.card.classList.toggle('is-selected', selecting && row.checkbox.checked);
+        }
+    }
+
     async function paintGallery() {
         gallery.replaceChildren();
         if (!imageRepo || typeof imageRepo.listMeta !== 'function' || typeof imageRepo.getUrl !== 'function') {
@@ -152,16 +198,31 @@ export function mountStoragePanel(root, deps) {
         if (destroyed || !listed?.ok) {
             return;
         }
+        galleryItems = listed.value.map((item) => ({ ...item, url: null, loading: true, card: null, checkbox: null, reuse: null }));
+        const activeIds = new Set(galleryItems.map((row) => String(row.id)));
+        for (const id of selectedIds) if (!activeIds.has(id)) selectedIds.delete(id);
+        syncSelection();
         if (!listed.value.length) {
             const empty = el('p', 'nd-muted');
             setText(empty, '没有缓存图片');
             gallery.appendChild(empty);
             return;
         }
-        for (const row of listed.value) {
+        for (const row of galleryItems) {
             const card = document.createElement('div');
             card.className = 'nd-cache-card';
             card.tabIndex = 0;
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'nd-cache-card__select';
+            checkbox.setAttribute('aria-label', '选择图片');
+            checkbox.addEventListener('click', (event) => event.stopPropagation());
+            checkbox.addEventListener('keydown', (event) => event.stopPropagation());
+            checkbox.addEventListener('change', () => {
+                if (checkbox.checked) selectedIds.add(String(row.id)); else selectedIds.delete(String(row.id));
+                syncSelection();
+            });
+            card.appendChild(checkbox);
             const img = document.createElement('img');
             img.alt = '';
             img.className = 'nd-cache-card__img';
@@ -201,23 +262,38 @@ export function mountStoragePanel(root, deps) {
             });
             reuse.addEventListener('keydown', (event) => event.stopPropagation());
             card.appendChild(reuse);
+            row.card = card; row.checkbox = checkbox; row.reuse = reuse;
+            checkbox.hidden = !selecting;
+            checkbox.checked = selectedIds.has(String(row.id));
+            reuse.hidden = selecting;
+            card.classList.toggle('is-selected', selecting && checkbox.checked);
             gallery.appendChild(card);
-            const urlR = await imageRepo.getUrl(row.id);
-            if (destroyed) return;
-            const url = urlR?.ok ? urlR.value : null;
-            if (url) {
-                img.src = url;
-                const open = () => {
-                    void openSlotImageViewer({ host }, { url, title, alt: title });
-                };
-                card.addEventListener('click', open);
-                card.addEventListener('keydown', (event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        open();
-                    }
-                });
-            }
+            const open = () => {
+                if (selecting) {
+                    if (selectedIds.has(String(row.id))) selectedIds.delete(String(row.id)); else selectedIds.add(String(row.id));
+                    syncSelection();
+                    return;
+                }
+                if (row.url) void openSlotImageViewer({ host }, { url: row.url, title, alt: title, getImageBlob: async () => {
+                    const result = await imageRepo.getBlob?.(row.id);
+                    return result?.ok ? result.value : null;
+                }, images: [{ url: row.url, imageRef: row.id }] });
+            };
+            card.addEventListener('click', open);
+            card.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); }
+            });
+            try {
+                const urlR = await imageRepo.getUrl(row.id);
+                if (destroyed) return;
+                row.url = urlR?.ok ? urlR.value : null;
+                if (row.url) img.src = row.url;
+                if (row.url && !imageExtension(row.mimeType, row.url) && typeof imageRepo.getBlob === 'function') {
+                    const got = await imageRepo.getBlob(row.id);
+                    if (got?.ok && got.value) row.mimeType = await detectImageMime(got.value);
+                }
+            } catch { row.url = null; }
+            finally { row.loading = false; if (selecting && selectedIds.has(String(row.id))) syncSelection(); }
         }
     }
 

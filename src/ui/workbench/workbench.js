@@ -31,6 +31,7 @@ import {
     parsePromptText,
 } from '../common/prompt-text.js';
 import { openSlotImageViewer } from '../common/image-viewer.js';
+import { detectImageMime, imageExtension, requestImageDownload } from '../common/image-download.js';
 import { emptyNaiCaption } from '../../domain/model/nai-params.js';
 import { createCharacter } from '../../domain/model/character.js';
 import { newId } from '../../infra/id.js';
@@ -1553,7 +1554,9 @@ export function mountWorkbench(root, deps) {
         setText(unmatchedEl, text);
     }
 
+    let previewSelectionSequence = 0;
     function clearPreviews() {
+        previewSelectionSequence += 1;
         currentPreviewBlob = null;
         downloadActions.replaceChildren();
         while (previewRevokers.length) {
@@ -1593,13 +1596,12 @@ export function mountWorkbench(root, deps) {
                 img.tabIndex = 0;
                 img.src = url;
                 const openLarge = () => {
-                    const history = savedImageRefs.map((imageRef) => ({
-                        imageRef, ...(imageRef === image.imageRef ? { url } : {}),
-                    }));
+                    // 历史查看器使用仓库 URL，外部预览更新时不会误撤销查看器正在使用的 URL。
+                    const history = savedImageRefs.map((imageRef) => ({ imageRef }));
                     let selected = history.findIndex((entry) => entry.imageRef === image.imageRef);
                     if (selected < 0) {
                         selected = history.length;
-                        history.push({ url });
+                        history.push({ url, blob: image.blob });
                     }
                     void openSlotImageViewer({ host }, {
                         url,
@@ -1610,6 +1612,20 @@ export function mountWorkbench(root, deps) {
                         getImageUrl: async (ref) => {
                             const result = await imageRepo?.getUrl?.(ref);
                             return result?.ok ? result.value : null;
+                        },
+                        getImageBlob: async (ref) => {
+                            const result = await imageRepo?.getBlob?.(ref);
+                            return result?.ok ? result.value : null;
+                        },
+                        onSelect: async (selectedItem) => {
+                            if (!selectedItem?.imageRef) return;
+                            const seq = ++previewSelectionSequence;
+                            const result = await imageRepo?.getBlob?.(selectedItem.imageRef);
+                            if (destroyed || seq !== previewSelectionSequence) return;
+                            if (!result?.ok || !result.value) throw new Error('所选图片缓存已不可用');
+                            previewImageRefs = [String(selectedItem.imageRef)];
+                            showPreviews([{ blob: result.value, mimeType: result.value.type, imageRef: String(selectedItem.imageRef) }]);
+                            persistWorkbenchDraft();
                         },
                     });
                 };
@@ -1624,7 +1640,16 @@ export function mountWorkbench(root, deps) {
                 const dl = document.createElement('a');
                 dl.className = 'nd-button nd-button--ghost';
                 dl.href = url;
-                dl.download = `nai-dbgen-workbench-${i + 1}.${image?.mimeType === 'image/webp' ? 'webp' : 'png'}`;
+                dl.download = '';
+                let downloadMime = image?.mimeType || image?.blob?.type || '';
+                if (!imageExtension(downloadMime, url) && image?.blob) {
+                    void detectImageMime(image.blob).then((mime) => { downloadMime = mime; });
+                }
+                dl.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    try { requestImageDownload(url, downloadMime); }
+                    catch (cause) { toast(host, 'error', cause?.message || '无法下载图片'); }
+                });
                 setText(dl, images.length === 1 ? '下载' : `下载 ${i + 1}`);
                 downloadActions.appendChild(dl);
             } else {
@@ -2427,11 +2452,25 @@ export function mountWorkbench(root, deps) {
                 /* 这一张读不出来就跳过 */
             }
         }
-        if (kept.length !== previewImageRefs.length) {
+        const missing = kept.length !== previewImageRefs.length;
+        if (missing && !images.length) {
+            // 当前预览被清理时只在本机缓存中寻找最近可用图片，不修改历史记录。
+            for (const ref of [...savedImageRefs].reverse()) {
+                if (previewImageRefs.includes(ref)) continue;
+                try {
+                    const got = await imageRepo.getBlob(ref);
+                    const blob = got?.ok ? got.value : null;
+                    if (blob) { images.push({ blob, mimeType: blob.type || '', imageRef: ref }); kept.push(ref); break; }
+                } catch { /* 继续查找上一张 */ }
+            }
+        }
+        if (destroyed) return;
+        if (missing) {
             previewImageRefs = kept;
             persistWorkbenchDraft();
+            toast(host, 'warning', images.length ? '部分预览图片已被清理，已显示本机可用的图片' : '预览图片已不在本机缓存');
         }
-        if (destroyed || !images.length) return;
+        if (!images.length) return;
         showPreviews(images);
     }
     return {

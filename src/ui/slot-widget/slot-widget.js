@@ -414,6 +414,36 @@ export function mountSlotWidget(rootEl, messageId, deps) {
     let destroyed = false;
     /** @type {string|null} */
     let currentImageUrl = null;
+    let currentImageRef = null;
+    let transientChoice = null;
+    let lastMissingRef = null;
+
+    function choiceKey() {
+        const session = typeof deps.getSessionId === 'function' ? deps.getSessionId() : null;
+        return session ? `nai-dbgen:slot-image-choice:${encodeURIComponent(String(session))}:${messageId}:${slotId}` : null;
+    }
+    function readChoice(record) {
+        const key = choiceKey();
+        let choice = transientChoice && transientChoice.key === key && transientChoice.chatId === resolveChatId() ? transientChoice : null;
+        if (!choice && key) {
+            try { choice = JSON.parse(localStorage.getItem(key) || 'null'); } catch { /* 存储不可用 */ }
+        }
+        const latest = latestImageEntry(record)?.imageRef;
+        if (!choice || !latest || String(choice.latestRef) !== String(latest) || !record?.images?.some((x) => String(x?.imageRef) === String(choice.ref))) {
+            if (choice && key) try { localStorage.removeItem(key); } catch { /* ignore */ }
+            transientChoice = null;
+            return null;
+        }
+        return String(choice.ref);
+    }
+    function rememberChoice(ref, record) {
+        const key = choiceKey();
+        const latestRef = latestImageEntry(record)?.imageRef;
+        if (!latestRef) return;
+        const choice = { key, chatId: resolveChatId(), ref: String(ref), latestRef: String(latestRef) };
+        transientChoice = choice;
+        if (key) try { localStorage.setItem(key, JSON.stringify(choice)); } catch { /* 本次会话仍可显示 */ }
+    }
     /** @type {(() => void)|null} */
     let unwatchInflight = null;
     /** @type {(() => void)|null} */
@@ -541,16 +571,27 @@ export function mountSlotWidget(rootEl, messageId, deps) {
         if (destroyed || !currentImageUrl) {
             return;
         }
+        const openedSession = choiceKey();
+        const openedChat = resolveChatId();
         const history = (deps.getRecord(messageId, slotId)?.images || [])
             .filter((item) => item?.imageRef);
+        const selected = history.findIndex((item) => String(item.imageRef) === String(currentImageRef));
         void openSlotImageViewer(
             { host: deps.host },
             {
                 url: currentImageUrl,
                 title: `图片 #${slotId} 历史`,
                 images: history,
-                initialIndex: history.length - 1,
+                initialIndex: selected >= 0 ? selected : history.length - 1,
                 getImageUrl: deps.getImageUrl,
+                getImageBlob: deps.getImageBlob,
+                onSelect: (item) => {
+                    if (destroyed || !item?.imageRef || choiceKey() !== openedSession || resolveChatId() !== openedChat) return;
+                    const record = deps.getRecord(messageId, slotId);
+                    if (!record?.images?.some((entry) => String(entry.imageRef) === String(item.imageRef))) return;
+                    rememberChoice(item.imageRef, record);
+                    void paintFromStore();
+                },
             },
         );
     }
@@ -631,26 +672,27 @@ export function mountSlotWidget(rootEl, messageId, deps) {
             loadErrorMessage: meta.loadErrorMessage ?? null,
         };
         const entry = latestImageEntry(record);
-        const cachedRef = !entry && meta.cachedImageRef
-            ? String(meta.cachedImageRef)
-            : null;
-        const imageRef = entry?.imageRef || cachedRef;
-
-        /** @type {string|null} */
+        const cachedRef = !entry && meta.cachedImageRef ? String(meta.cachedImageRef) : null;
+        const chosen = readChoice(record);
+        let imageRef = chosen || entry?.imageRef || cachedRef;
         let url = null;
         let cacheMissing = false;
         if (imageRef) {
-            try {
-                url = await deps.getImageUrl(imageRef);
-            } catch {
-                url = null;
-            }
-            if (destroyed || gen !== paintGeneration) {
-                return;
-            }
-            // 记录在 + 缓存无 → 未生图；beyond_retain 仅缓存图时 cache 没了走无图
-            if (!url) {
-                cacheMissing = entry != null;
+            try { url = await deps.getImageUrl(imageRef); } catch { url = null; }
+            if (destroyed || gen !== paintGeneration) return;
+            if (!url && entry) {
+                if (chosen && lastMissingRef !== chosen) {
+                    lastMissingRef = chosen;
+                    deps.host?.toast?.('warning', '所选历史图片已不在本机缓存，已尝试显示最近可用图片');
+                }
+                const history = Array.isArray(record?.images) ? [...record.images].reverse() : [];
+                for (const candidate of history) {
+                    if (!candidate?.imageRef || String(candidate.imageRef) === String(imageRef)) continue;
+                    try { url = await deps.getImageUrl(candidate.imageRef); } catch { url = null; }
+                    if (destroyed || gen !== paintGeneration) return;
+                    if (url) { imageRef = String(candidate.imageRef); break; }
+                }
+                cacheMissing = !url;
             }
         }
 
@@ -709,12 +751,14 @@ export function mountSlotWidget(rootEl, messageId, deps) {
             if (view.state !== 'generating') {
                 paintImage(imgBox, null, onThumbClick);
                 currentImageUrl = null;
+                currentImageRef = null;
             }
             fitHostFrame(rootEl);
             return;
         }
 
         currentImageUrl = url;
+        currentImageRef = imageRef;
         const img = paintImage(imgBox, url, onThumbClick);
         img?.addEventListener('load', () => fitHostFrame(rootEl));
         fitHostFrame(rootEl);
