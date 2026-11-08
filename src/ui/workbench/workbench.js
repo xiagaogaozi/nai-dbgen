@@ -2340,12 +2340,32 @@ export function mountWorkbench(root, deps) {
     genSection.el.classList.add('nd-wb-section--secondary');
 
     const leftColumn = el('div', 'nd-wb-column nd-wb-column--left');
+    leftColumn.id = newId('nd-wb-left');
+    const leftRail = el('div', 'nd-wb-left-rail');
+    const leftToggle = createButton({
+        label: '', variant: 'icon',
+        onClick: () => {
+            const collapsed = shell.classList.toggle('nd-workbench--left-collapsed');
+            leftToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            leftToggle.setAttribute('aria-label', collapsed ? '展开左侧面板' : '收起左侧面板');
+            leftToggle.title = collapsed ? '展开左侧面板' : '收起左侧面板';
+        },
+    });
+    leftToggle.classList.add('nd-wb-left-toggle');
+    leftToggle.setAttribute('aria-controls', leftColumn.id);
+    leftToggle.setAttribute('aria-expanded', 'true');
+    leftToggle.setAttribute('aria-label', '收起左侧面板');
+    leftToggle.title = '收起左侧面板';
+    const leftToggleIcon = el('span', 'nd-wb-left-toggle__icon');
+    leftToggleIcon.setAttribute('aria-hidden', 'true');
+    leftToggle.appendChild(leftToggleIcon);
+    leftRail.appendChild(leftToggle);
     const middleColumn = el('div', 'nd-wb-column nd-wb-column--middle');
     const rightColumn = el('div', 'nd-wb-column nd-wb-column--right');
     leftColumn.append(paramsDetails.el, writeSection.el);
     middleColumn.append(artistSlot, sourceBar, captionSection.el, market);
     rightColumn.append(genSection.el);
-    shell.append(leftColumn, middleColumn, rightColumn);
+    shell.append(leftRail, leftColumn, middleColumn, rightColumn);
     root.appendChild(shell);
 
     function persistWorkbenchDraft() {

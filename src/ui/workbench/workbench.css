@@ -639,3 +639,78 @@
     border-radius: var(--nd-radius-lg);
     background: var(--nd-surface-2);
 }
+
+/* 桌面左栏收起：仅隐藏布局，不销毁表单和正在运行的任务。 */
+:is(#nai-dbgen-root, .nd-root) .nd-wb-left-rail { display: none; }
+@media (hover: hover) and (pointer: fine) {
+    @container nd-root (min-width: 1051px) {
+        :is(#nai-dbgen-root, .nd-root) .nd-workbench {
+            --nd-wb-left-width: max(265px, 20%);
+            --nd-wb-right-width: max(270px, 23%);
+            position: relative;
+            grid-template-columns: var(--nd-wb-left-width) minmax(0, 1fr) var(--nd-wb-right-width);
+        }
+        /* 按钮在左栏顶端右侧，左栏内容向下留出按钮高度。 */
+        :is(#nai-dbgen-root, .nd-root) .nd-wb-left-rail {
+            display: flex;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: var(--nd-wb-left-width);
+            justify-content: flex-end;
+            /* 对齐面板内容右缘，预留其滚动条宽度。 */
+            padding-right: calc(var(--nd-scroll-size) + 6px);
+            z-index: 2;
+        }
+        :is(#nai-dbgen-root, .nd-root) .nd-wb-column--left {
+            /* 顶部留白放在滚动容器之外，滚动条不会延伸到按钮下面。 */
+            margin-top: calc(var(--nd-h-icon) + var(--nd-space-stack));
+            height: calc(100% - var(--nd-h-icon) - var(--nd-space-stack));
+        }
+        /* 中间列等于展开前的宽度；收回左栏后多出的空间给生成结果。 */
+        :is(#nai-dbgen-root, .nd-root) .nd-workbench.nd-workbench--left-collapsed {
+            grid-template-columns: var(--nd-h-icon)
+                minmax(0, calc(100% - var(--nd-wb-left-width) - var(--nd-wb-right-width) - var(--nd-space-stack) - var(--nd-space-stack)))
+                minmax(0, 1fr);
+        }
+        :is(#nai-dbgen-root, .nd-root) .nd-workbench.nd-workbench--left-collapsed .nd-wb-left-rail {
+            position: static;
+            width: auto;
+            padding-right: 0;
+        }
+        :is(#nai-dbgen-root, .nd-root) .nd-workbench.nd-workbench--left-collapsed .nd-wb-column--left { display: none; }
+    }
+}
+:is(#nai-dbgen-root, .nd-root) .nd-icon-button.nd-wb-left-toggle {
+    width: var(--nd-h-icon) !important;
+    min-width: var(--nd-h-icon) !important;
+    height: var(--nd-h-icon) !important;
+    min-height: var(--nd-h-icon) !important;
+    padding: 0 !important;
+    display: inline-grid;
+    place-items: center;
+    border-radius: var(--nd-radius-pill) !important;
+    background: var(--nd-surface) !important;
+    color: var(--nd-soft) !important;
+}
+:is(#nai-dbgen-root, .nd-root) .nd-icon-button.nd-wb-left-toggle:hover {
+    background: var(--nd-ghost-hover) !important;
+    color: var(--nd-text) !important;
+}
+:is(#nai-dbgen-root, .nd-root) .nd-wb-left-toggle__icon {
+    display: block;
+    position: relative;
+    width: 15px;
+    height: 14px;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+}
+:is(#nai-dbgen-root, .nd-root) .nd-wb-left-toggle__icon::before {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: currentColor;
+}
