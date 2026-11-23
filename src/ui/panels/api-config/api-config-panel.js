@@ -13,6 +13,7 @@ import {
     createTextarea,
 } from '../../common/controls.js';
 import {
+    API_CONFIG_SCHEMA_VERSION,
     createLlmApiConfig,
     createNaiApiConfig,
     DEFAULT_NAI_BASE_URL,
@@ -21,6 +22,8 @@ import {
     llmConfigHasKey,
     llmSecretLabel,
 } from '../../../domain/model/api-config.js';
+import { buildExportEnvelope } from '../../../adapters/storage/import-export.js';
+import { buildExportFilename, downloadJson } from '../../common/import-export.js';
 import { mountLibraryView } from '../library-view.js';
 import { applyFormFields } from '../_lib/library-logic.js';
 import {
@@ -28,6 +31,8 @@ import {
     setText,
     idNow,
     settingsApi,
+    bindSelectionOutsideExit,
+    countOverwriteByIds,
     confirmDanger,
     openImportExportModal,
     openFormModal,
@@ -95,6 +100,8 @@ export function mountApiConfigPanel(root, deps) {
 
     /** @type {ReturnType<typeof mountLibraryView>|null} */
     let view = null;
+    /** @type {(() => void)|null} */
+    let unbindOutside = null;
     /** @type {(() => void)[]} */
     const cleanups = [];
     let destroyed = false;
@@ -114,6 +121,8 @@ export function mountApiConfigPanel(root, deps) {
 
     function mountCurrentView() {
         viewEpoch += 1;
+        unbindOutside?.();
+        unbindOutside = null;
         view?.destroy();
         view = null;
         const kind = segments.getValue() === 'nai' ? 'nai' : 'llm';
@@ -135,6 +144,12 @@ export function mountApiConfigPanel(root, deps) {
             variant: 'ghost',
             onClick: () => view?.clearSelection(),
         });
+        const exportSelectedBtn = createButton({
+            label: '导出所选',
+            variant: 'ghost',
+            onClick: () => void exportSelected(kind),
+        });
+        exportSelectedBtn.disabled = true;
         const deleteSelectedBtn = createButton({
             label: '删除所选',
             variant: 'danger',
@@ -146,21 +161,25 @@ export function mountApiConfigPanel(root, deps) {
             },
         });
         deleteSelectedBtn.disabled = true;
-        for (const btn of [selectAllBtn, clearSelectBtn, deleteSelectedBtn]) {
+        for (const btn of [selectAllBtn, clearSelectBtn, exportSelectedBtn, deleteSelectedBtn]) {
             btn.classList.add('nd-artist-bulk__btn');
         }
-        bulkBar.append(selectAllBtn, clearSelectBtn, deleteSelectedBtn);
+        bulkBar.append(selectAllBtn, clearSelectBtn, exportSelectedBtn, deleteSelectedBtn);
+
+        function setSelectionModeUi(next) {
+            view?.setSelectionMode(next);
+            bulkBar.hidden = !next;
+            bulkCount.hidden = !next;
+            setText(selectModeBtn, next ? '完成' : '选择');
+            selectModeBtn.setAttribute('aria-pressed', next ? 'true' : 'false');
+        }
 
         const selectModeBtn = createButton({
             label: '选择',
             variant: 'ghost',
             onClick: () => {
                 const next = !(view?.isSelectionMode() ?? false);
-                view?.setSelectionMode(next);
-                bulkBar.hidden = !next;
-                bulkCount.hidden = !next;
-                setText(selectModeBtn, next ? '完成' : '选择');
-                selectModeBtn.setAttribute('aria-pressed', next ? 'true' : 'false');
+                setSelectionModeUi(next);
             },
         });
         selectModeBtn.setAttribute('aria-pressed', 'false');
@@ -168,8 +187,15 @@ export function mountApiConfigPanel(root, deps) {
         /** @param {string[]} picked */
         const syncBulk = (picked) => {
             setText(bulkCount, `已选 ${picked.length}`);
-            deleteSelectedBtn.disabled = picked.length === 0;
+            const empty = picked.length === 0;
+            exportSelectedBtn.disabled = empty;
+            deleteSelectedBtn.disabled = empty;
         };
+
+        unbindOutside = bindSelectionOutsideExit(shell, {
+            isActive: () => Boolean(view?.isSelectionMode()),
+            onExit: () => setSelectionModeUi(false),
+        });
 
         if (kind === 'llm') {
             view = mountLibraryView(listHost, {
@@ -196,7 +222,6 @@ export function mountApiConfigPanel(root, deps) {
                 onEdit: (item) => void openLlmEditor(item),
                 onDelete: (idList) => void removeLlm(idList),
                 onImport: () => void openImport(llmRepo, 'llm-config', '导入 LLM API', () => view?.refresh(), 'import'),
-                onExport: () => void openImport(llmRepo, 'llm-config', '导出 LLM API', () => view?.refresh(), 'export'),
             }, {
                 cover: false,
                 searchKeys: ['name', 'model', 'baseUrl'],
@@ -238,7 +263,6 @@ export function mountApiConfigPanel(root, deps) {
                 onEdit: (item) => void openNaiEditor(item),
                 onDelete: (idList) => void removeNai(idList),
                 onImport: () => void openImport(naiRepo, 'nai-config', '导入 NAI API', () => view?.refresh(), 'import'),
-                onExport: () => void openImport(naiRepo, 'nai-config', '导出 NAI API', () => view?.refresh(), 'export'),
             }, {
                 cover: false,
                 searchKeys: ['name', 'baseUrl'],
@@ -260,6 +284,33 @@ export function mountApiConfigPanel(root, deps) {
                     };
                 },
             });
+        }
+    }
+
+    /**
+     * @param {'llm'|'nai'} kind
+     */
+    async function exportSelected(kind) {
+        const picked = view?.getSelectedIds() || [];
+        if (!picked.length) return;
+        const pickedSet = new Set(picked.map((id) => String(id)));
+        const repo = kind === 'llm' ? llmRepo : naiRepo;
+        const items = await awaitRepo(host, repo.list(), '读取配置失败') || [];
+        const selected = items.filter((item) => pickedSet.has(String(item.id)));
+        if (!selected.length) {
+            toast(host, 'warning', '没有可导出的配置');
+            return;
+        }
+        const envelope = buildExportEnvelope({
+            kind: kind === 'llm' ? 'llm-config' : 'nai-config',
+            schemaVersion: API_CONFIG_SCHEMA_VERSION,
+            payload: { items: selected },
+        });
+        try {
+            downloadJson(envelope, buildExportFilename(kind === 'llm' ? 'LLM-API' : 'NAI-API'));
+            toast(host, 'success', `已导出 ${selected.length} 条 ${kind === 'llm' ? 'LLM' : 'NAI'} API`);
+        } catch (cause) {
+            toast(host, 'error', cause instanceof Error ? cause.message : '导出失败');
         }
     }
 
@@ -343,8 +394,15 @@ export function mountApiConfigPanel(root, deps) {
                 if (!r.ok) throw new Error(r.error?.message || '导出失败');
                 return r.value;
             },
-            onDone,
-            { mode },
+            typeof repo.onChanged === 'function' ? undefined : onDone,
+            {
+                mode,
+                exportCategory: expectedKind === 'llm-config' ? 'LLM-API' : 'NAI-API',
+                countOverwrite: (rows) => countOverwriteByIds(rows, async () => {
+                    const r = await repo.list();
+                    return (r?.ok && Array.isArray(r.value) ? r.value : []).map((it) => String(it.id));
+                }),
+            },
         );
     }
 
@@ -1008,6 +1066,8 @@ export function mountApiConfigPanel(root, deps) {
         destroy() {
             if (destroyed) return;
             destroyed = true;
+            unbindOutside?.();
+            unbindOutside = null;
             for (const fn of cleanups) fn();
             view?.destroy();
             view = null;

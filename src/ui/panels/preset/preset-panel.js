@@ -4,7 +4,9 @@
  */
 
 import { createButton, createField, createNumberField, createSegmentedTabs, createSelect, createCheckbox } from '../../common/controls.js';
-import { createPreset, importFromSillyTavernPreset, presetRetryCount } from '../../../domain/model/preset.js';
+import { buildExportFilename, downloadJson } from '../../common/import-export.js';
+import { PRESET_SCHEMA_VERSION, createPreset, importFromSillyTavernPreset, presetRetryCount } from '../../../domain/model/preset.js';
+import { buildExportEnvelope } from '../../../adapters/storage/import-export.js';
 import { listRegisteredVariables } from '../../../domain/template/variable-map.js';
 import { mountLibraryView } from '../library-view.js';
 import { applyFormFields, mergePresetPrompt } from '../_lib/library-logic.js';
@@ -14,6 +16,8 @@ import {
     labeledTextarea,
     idNow,
     settingsApi,
+    bindSelectionOutsideExit,
+    countOverwriteByIds,
     confirmDanger,
     openImportExportModal,
     openFormModal,
@@ -70,11 +74,66 @@ export function mountPresetPanel(root, deps) {
     const cleanups = [];
     let destroyed = false;
 
+    const bulkCount = el('span', 'nd-artist-bulk__count');
+    setText(bulkCount, '已选 0');
+    bulkCount.hidden = true;
+
+    const bulkBar = el('div', 'nd-bulk-bar');
+    bulkBar.hidden = true;
+
+    const selectAllBtn = createButton({
+        label: '全选',
+        variant: 'ghost',
+        onClick: () => view.selectVisible(),
+    });
+    const clearSelectBtn = createButton({
+        label: '取消选择',
+        variant: 'ghost',
+        onClick: () => view.clearSelection(),
+    });
+    const exportSelectedBtn = createButton({
+        label: '导出所选',
+        variant: 'ghost',
+        onClick: () => void exportSelected(),
+    });
+    exportSelectedBtn.disabled = true;
+    const deleteSelectedBtn = createButton({
+        label: '删除所选',
+        variant: 'danger',
+        onClick: () => {
+            const picked = view.getSelectedIds();
+            if (picked.length) void removeItems(picked);
+        },
+    });
+    deleteSelectedBtn.disabled = true;
+    for (const btn of [selectAllBtn, clearSelectBtn, exportSelectedBtn, deleteSelectedBtn]) {
+        btn.classList.add('nd-artist-bulk__btn');
+    }
+    bulkBar.append(selectAllBtn, clearSelectBtn, exportSelectedBtn, deleteSelectedBtn);
+
+    function setSelectionModeUi(next) {
+        view.setSelectionMode(next);
+        bulkBar.hidden = !next;
+        bulkCount.hidden = !next;
+        setText(selectModeBtn, next ? '完成' : '选择');
+        selectModeBtn.setAttribute('aria-pressed', next ? 'true' : 'false');
+    }
+
+    const selectModeBtn = createButton({
+        label: '选择',
+        variant: 'ghost',
+        onClick: () => setSelectionModeUi(!view.isSelectionMode()),
+    });
+    selectModeBtn.setAttribute('aria-pressed', 'false');
+
     const segments = createSegmentedTabs({
         ariaLabel: '预设类型',
         storageKey: PRESET_KIND_STORAGE_KEY,
         items: PRESET_TABS.map((t) => ({ id: t.id, label: t.label })),
-        onChange: () => void view.refresh(),
+        onChange: () => {
+            if (view.isSelectionMode()) setSelectionModeUi(false);
+            void view.refresh();
+        },
     });
     shell.append(segments.el, listHost);
     root.appendChild(shell);
@@ -108,10 +167,21 @@ export function mountPresetPanel(root, deps) {
         onEdit: (item) => void openEditor(item),
         onDelete: (idList) => void removeItems(idList),
         onImport: () => void openImport('import'),
-        onExport: () => void openImport('export'),
     }, {
         cover: false,
         searchKeys: ['name', 'kind'],
+        selectable: true,
+        selectionMode: false,
+        showCheckbox: false,
+        toolbarLeading: [selectModeBtn],
+        bulkBar,
+        statusExtra: bulkCount,
+        onSelectionChange: (picked) => {
+            setText(bulkCount, `已选 ${picked.length}`);
+            const empty = picked.length === 0;
+            exportSelectedBtn.disabled = empty;
+            deleteSelectedBtn.disabled = empty;
+        },
         cardMeta: (item) => ({
             subtitle: `${KIND_LABEL[item.kind] || item.kind || '—'} · ${
                 Array.isArray(item.prompts) ? item.prompts.length : 0
@@ -119,6 +189,35 @@ export function mountPresetPanel(root, deps) {
             chips: Array.isArray(item.__chips) ? item.__chips : [],
         }),
     });
+
+    async function exportSelected() {
+        const picked = view.getSelectedIds();
+        if (!picked.length) return;
+        const pickedSet = new Set(picked.map((id) => String(id)));
+        const items = await awaitRepo(host, repo.list(), '读取预设失败') || [];
+        const selected = items.filter((item) => pickedSet.has(String(item.id)));
+        if (!selected.length) {
+            toast(host, 'warning', '没有可导出的预设');
+            return;
+        }
+        const category = KIND_LABEL[currentKind()] || '预设';
+        const envelope = buildExportEnvelope({
+            kind: 'preset',
+            schemaVersion: PRESET_SCHEMA_VERSION,
+            payload: { items: selected },
+        });
+        try {
+            downloadJson(envelope, buildExportFilename(category));
+            toast(host, 'success', `已导出 ${selected.length} 条${category}`);
+        } catch (cause) {
+            toast(host, 'error', cause instanceof Error ? cause.message : '导出预设失败');
+        }
+    }
+
+    cleanups.push(bindSelectionOutsideExit(shell, {
+        isActive: () => view.isSelectionMode(),
+        onExit: () => setSelectionModeUi(false),
+    }));
 
     /**
      * @param {string[]} idList
@@ -503,8 +602,15 @@ export function mountPresetPanel(root, deps) {
                 if (!r.ok) throw new Error(r.error?.message || '导出失败');
                 return r.value;
             },
-            () => void view.refresh(),
-            { mode },
+            typeof repo.onChanged === 'function' ? undefined : () => void view.refresh(),
+            {
+                mode,
+                exportCategory: KIND_LABEL[currentKind()] || '预设',
+                countOverwrite: (rows) => countOverwriteByIds(rows, async () => {
+                    const r = await repo.list();
+                    return (r?.ok && Array.isArray(r.value) ? r.value : []).map((it) => String(it.id));
+                }),
+            },
         );
     }
 

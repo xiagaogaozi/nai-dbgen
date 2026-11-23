@@ -107,12 +107,57 @@ export function artistPreviewRefToName(ref) {
 }
 
 /**
+ * Blob → data URL（浏览器优先用原生 FileReader，比 JS 逐块拼字符串 + btoa 快一个数量级）。
+ * @param {Blob} blob
+ * @returns {Promise<string>}
+ */
+export async function blobToDataUrl(blob) {
+    if (typeof FileReader !== 'undefined') {
+        try {
+            const url = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+                reader.onerror = () => reject(reader.error || new Error('FileReader 失败'));
+                reader.readAsDataURL(blob);
+            });
+            if (url && url.startsWith('data:')) {
+                return url;
+            }
+        } catch {
+            // 回退到 ArrayBuffer 编码
+        }
+    }
+    const ext = extFromBlob(blob);
+    const b64 = await blobToBase64(blob);
+    return toImageDataUrl(ext, b64);
+}
+
+/**
  * Blob → base64（无 data: 前缀）。
  * @param {Blob} blob
  * @returns {Promise<string>}
  */
 export async function blobToBase64(blob) {
+    if (typeof FileReader !== 'undefined') {
+        try {
+            const url = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+                reader.onerror = () => reject(reader.error || new Error('FileReader 失败'));
+                reader.readAsDataURL(blob);
+            });
+            const comma = url.indexOf(',');
+            if (comma >= 0) {
+                return url.slice(comma + 1);
+            }
+        } catch {
+            // 回退到 ArrayBuffer 编码
+        }
+    }
     const buf = await blob.arrayBuffer();
+    if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
+        return Buffer.from(buf).toString('base64');
+    }
     const bytes = new Uint8Array(buf);
     let binary = '';
     const chunk = 0x8000;

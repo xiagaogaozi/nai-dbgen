@@ -6,13 +6,15 @@
 
 import { createLibraryToolbar } from '../../common/library-chrome.js';
 import { createButton, createMiniAction, createField, createToggle, createInlineError, createSelect } from '../../common/controls.js';
+import { buildExportFilename, downloadJson } from '../../common/import-export.js';
 import {
     mountNestedList,
     paintNestedChildTexts,
     NESTED_CHILD_ROW_HEIGHT,
 } from '../../common/nested-list.js';
 import { createStore } from '../../common/store.js';
-import { createTagLibrary, createTagEntry, normalizeTagLibraryKind, normalizeTagEntrySecondary } from '../../../domain/model/tag.js';
+import { TAG_SCHEMA_VERSION, createTagLibrary, createTagEntry, normalizeTagLibraryKind, normalizeTagEntrySecondary } from '../../../domain/model/tag.js';
+import { buildExportEnvelope } from '../../../adapters/storage/import-export.js';
 import {
     parseCompositionKey,
     composeCompositionKey,
@@ -24,6 +26,8 @@ import {
     setText,
     labeledTextarea,
     idNow,
+    bindSelectionOutsideExit,
+    countOverwriteByIds,
     confirmDanger,
     openImportExportModal,
     openFormModal,
@@ -103,34 +107,42 @@ export function mountTagPanel(root, deps) {
         variant: 'ghost',
         onClick: () => clearSelection(),
     });
+    const exportSelectedBtn = createButton({
+        label: '导出所选',
+        variant: 'ghost',
+        onClick: () => exportSelected(),
+    });
+    exportSelectedBtn.disabled = true;
     const deleteSelectedBtn = createButton({
         label: '删除所选',
         variant: 'danger',
         onClick: () => void removeSelected(),
     });
     deleteSelectedBtn.disabled = true;
-    for (const btn of [selectAllBtn, clearSelectBtn, deleteSelectedBtn]) {
+    for (const btn of [selectAllBtn, clearSelectBtn, exportSelectedBtn, deleteSelectedBtn]) {
         btn.classList.add('nd-artist-bulk__btn');
     }
     const bulkBar = el('div', 'nd-bulk-bar');
     bulkBar.hidden = true;
-    bulkBar.append(selectAllBtn, clearSelectBtn, deleteSelectedBtn, bulkCount);
+    bulkBar.append(selectAllBtn, clearSelectBtn, exportSelectedBtn, deleteSelectedBtn, bulkCount);
+
+    function setSelectionModeUi(next) {
+        selectionMode = Boolean(next);
+        if (!selectionMode) {
+            selectedLibIds.clear();
+            selectedEntryIds.clear();
+        }
+        bulkBar.hidden = !selectionMode;
+        setText(selectModeBtn, selectionMode ? '完成' : '选择');
+        selectModeBtn.setAttribute('aria-pressed', selectionMode ? 'true' : 'false');
+        syncBulk();
+        nested?.refresh();
+    }
 
     const selectModeBtn = createButton({
         label: '选择',
         variant: 'ghost',
-        onClick: () => {
-            selectionMode = !selectionMode;
-            if (!selectionMode) {
-                selectedLibIds.clear();
-                selectedEntryIds.clear();
-            }
-            bulkBar.hidden = !selectionMode;
-            setText(selectModeBtn, selectionMode ? '完成' : '选择');
-            selectModeBtn.setAttribute('aria-pressed', selectionMode ? 'true' : 'false');
-            syncBulk();
-            nested?.refresh();
-        },
+        onClick: () => setSelectionModeUi(!selectionMode),
     });
     selectModeBtn.setAttribute('aria-pressed', 'false');
 
@@ -141,7 +153,6 @@ export function mountTagPanel(root, deps) {
         onCreate: () => void openLibraryEditor(null),
         leading: [selectModeBtn],
         onImport: () => void openImport('import'),
-        onExport: () => void openImport('export'),
         extra: (() => {
             const wrap = el('label', 'nd-checkbox-row');
             const input = document.createElement('input');
@@ -192,7 +203,47 @@ export function mountTagPanel(root, deps) {
         if (libs.length) parts.push(`${libs.length} 个库`);
         if (entries.length) parts.push(`${entries.length} 条`);
         setText(bulkCount, parts.length ? `已选 ${parts.join('、')}` : '已选 0');
-        deleteSelectedBtn.disabled = libs.length === 0 && entries.length === 0;
+        const empty = libs.length === 0 && entries.length === 0;
+        exportSelectedBtn.disabled = empty;
+        deleteSelectedBtn.disabled = empty;
+    }
+
+    function exportSelected() {
+        const s = store.get();
+        const { libs, entries } = resolveSelectionTargets();
+        if (!libs.length && !entries.length) return;
+        const libById = new Map(s.libraries.map((l) => [String(l.id), l]));
+        /** @type {Map<string, object>} */
+        const outLibs = new Map();
+        /** @type {object[]} */
+        const outEntries = [];
+        for (const lib of libs) {
+            const lid = String(lib.id);
+            outLibs.set(lid, lib);
+            for (const entry of s.byLib.get(lid) || []) {
+                outEntries.push(entry);
+            }
+        }
+        for (const entry of entries) {
+            const lid = String(entry.libraryId ?? '');
+            const parent = libById.get(lid);
+            if (parent) outLibs.set(lid, parent);
+            outEntries.push(entry);
+        }
+        const payload = buildExportEnvelope({
+            kind: 'tag',
+            schemaVersion: TAG_SCHEMA_VERSION,
+            payload: {
+                libraries: [...outLibs.values()],
+                entries: outEntries,
+            },
+        });
+        try {
+            downloadJson(payload, buildExportFilename('标签库'));
+            toast(host, 'success', `已导出 ${outLibs.size} 个标签库，共 ${outEntries.length} 条`);
+        } catch (cause) {
+            toast(host, 'error', cause instanceof Error ? cause.message : '导出标签库失败');
+        }
     }
 
     function pruneSelection() {
@@ -673,10 +724,27 @@ export function mountTagPanel(root, deps) {
                 if (!r.ok) throw new Error(r.error?.message || '导出失败');
                 return r.value;
             },
-            () => void refresh(),
-            { mode },
+            typeof repo.onChanged === 'function' ? undefined : () => void refresh(),
+            {
+                mode,
+                exportCategory: '标签库',
+                countOverwrite: (rows) => countOverwriteByIds(rows, () => {
+                    const ids = [];
+                    for (const list of store.get().byLib.values()) {
+                        for (const entry of list || []) {
+                            if (entry?.id != null) ids.push(String(entry.id));
+                        }
+                    }
+                    return ids;
+                }),
+            },
         );
     }
+
+    cleanups.push(bindSelectionOutsideExit(shell, {
+        isActive: () => selectionMode,
+        onExit: () => setSelectionModeUi(false),
+    }));
 
     if (typeof repo.onChanged === 'function') {
         cleanups.push(repo.onChanged(() => void refresh()));

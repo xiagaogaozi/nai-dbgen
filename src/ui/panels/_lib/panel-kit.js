@@ -322,6 +322,7 @@ export async function openImportExportModal(deps, title, expectedKind, importJso
     const ioMode = opts?.mode === 'export' ? 'export' : 'import';
     const handle = mountImportExport(root, {
         mode: ioMode,
+        exportCategory: opts?.exportCategory,
         exportJson: async () => {
             try {
                 return await exportJson({
@@ -528,4 +529,77 @@ export function labeledTextarea(label, value = '', rows = 4) {
             root.remove();
         },
     };
+}
+
+/** 点击这些区域时保持选择模式（不算空白）。 */
+const SELECTION_KEEP_SELECTOR = [
+    '.nd-style-card',
+    '.nd-cache-card',
+    '.nd-nested-list__parent',
+    '.nd-nested-list__child',
+    '.nd-library-toolbar',
+    '.nd-bulk-bar',
+    '.nd-artist-filter-row',
+    '.nd-cache-selection',
+    '.nd-segment',
+    'dialog',
+    '.nd-popup',
+    '.nd-modal',
+    'button',
+    'input',
+    'label',
+    'select',
+    'textarea',
+    'a',
+].join(', ');
+
+/**
+ * 选择模式下点击容器空白处自动退出选择并清空已选。
+ * @param {Element} container
+ * @param {{ isActive: () => boolean, onExit: () => void }} opts
+ * @returns {() => void}
+ */
+export function bindSelectionOutsideExit(container, opts) {
+    if (!container || typeof container.addEventListener !== 'function') {
+        return () => {};
+    }
+    /** @param {Event} event */
+    const onClick = (event) => {
+        if (!opts?.isActive?.()) return;
+        const target = /** @type {any} */ (event?.target);
+        if (!target) return;
+        // 若点击已触发重绘移除了原节点，避免误判为空白退出
+        if ('isConnected' in target && target.isConnected === false) return;
+        if (typeof target.closest === 'function' && target.closest(SELECTION_KEEP_SELECTOR)) {
+            return;
+        }
+        opts?.onExit?.();
+    };
+    container.addEventListener('click', onClick);
+    return () => {
+        container.removeEventListener('click', onClick);
+    };
+}
+
+/**
+ * 轻量统计覆盖导入会命中的已有 ID 数（直接比对内存/仓库列表，不触发全库 exportJson）。
+ * @param {object[]} rows
+ * @param {() => Promise<Iterable<string>>|Iterable<string>} getExistingIds
+ * @returns {Promise<number>}
+ */
+export async function countOverwriteByIds(rows, getExistingIds) {
+    /** @type {Set<string>} */
+    const incoming = new Set();
+    for (const row of rows || []) {
+        if (row && /** @type {any} */ (row).id != null && /** @type {any} */ (row).id !== '') {
+            incoming.add(String(/** @type {any} */ (row).id));
+        }
+    }
+    if (!incoming.size) return 0;
+    const existing = new Set(await getExistingIds());
+    let hit = 0;
+    for (const id of incoming) {
+        if (existing.has(id)) hit += 1;
+    }
+    return hit;
 }

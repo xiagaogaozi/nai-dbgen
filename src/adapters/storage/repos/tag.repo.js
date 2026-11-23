@@ -227,8 +227,7 @@ export function createTagRepo(deps) {
             const body = parsed.value.body;
             const libsIn = Array.isArray(body.libraries) ? body.libraries : [];
             const entriesIn = Array.isArray(body.entries) ? body.entries : [];
-            const itemCount = libsIn.length + entriesIn.length;
-            const total = itemCount * 2;
+            const total = libsIn.length + entriesIn.length;
             let done = 0;
             let lastYieldAt = 0;
             const report = async (name) => {
@@ -262,6 +261,10 @@ export function createTagRepo(deps) {
                 const libMetaById = new Map(
                     existingLibs.map((l) => [l.id, { name: String(l.name ?? l.id), kind: String(l.kind ?? 'composition') }]),
                 );
+                /** @type {any[]} */
+                const validatedLibs = [];
+                /** @type {any[]} */
+                const validatedEntries = [];
 
                 for (const raw of libsIn) {
                     await report(raw?.name || raw?.id || '');
@@ -270,6 +273,7 @@ export function createTagRepo(deps) {
                         preflightErrors.push(validated.error.message);
                         continue;
                     }
+                    validatedLibs.push(validated.value);
                     libMetaById.set(validated.value.id, {
                         name: validated.value.name,
                         kind: validated.value.kind,
@@ -311,7 +315,9 @@ export function createTagRepo(deps) {
                         preflightErrors.push(
                             `${kindLabelForError(kind)}「${libName}」条目「${validated.value.key}」：${writing.error.message}`,
                         );
+                        continue;
                     }
+                    validatedEntries.push(validated.value);
                 }
 
                 if (preflightErrors.length > 0) {
@@ -324,26 +330,20 @@ export function createTagRepo(deps) {
 
                 /** @type {any[]} */
                 const libPuts = [];
-                for (const raw of libsIn) {
-                    await report(raw?.name || raw?.id || '');
-                    const validated = validateTagLibrary(raw);
-                    if (!validated.ok) {
-                        // 预检已通过；此处不应再失败
-                        return Err(validated.error);
-                    }
+                for (const lib of validatedLibs) {
                     const decision = resolveDuplicate({
-                        incoming: validated.value,
-                        existing: libById.get(validated.value.id),
+                        incoming: lib,
+                        existing: libById.get(lib.id),
                         strategy,
                         idPrefix: 'tl',
                     });
                     if (decision.action === 'skip') {
                         skipped += 1;
-                        libIdMap.set(validated.value.id, validated.value.id);
+                        libIdMap.set(lib.id, lib.id);
                         continue;
                     }
                     libPuts.push(decision.entity);
-                    libIdMap.set(validated.value.id, decision.entity.id);
+                    libIdMap.set(lib.id, decision.entity.id);
                     libById.set(decision.entity.id, decision.entity);
                     imported += 1;
                 }
@@ -353,41 +353,11 @@ export function createTagRepo(deps) {
                 /** @type {any[]} */
                 const entryPuts = [];
 
-                for (const raw of entriesIn) {
-                    await report(raw?.key || raw?.id || '');
-                    const mappedLibId = libIdMap.get(raw?.libraryId) || raw?.libraryId;
-                    const validated = validateTagEntry({
-                        ...raw,
-                        libraryId: mappedLibId,
-                    });
-                    if (!validated.ok) {
-                        return Err(validated.error);
-                    }
-                    const libRow = libById.get(mappedLibId) || await db.get(LIBS, mappedLibId);
-                    if (!libRow) {
-                        return Err(configError({
-                            code: 'TAG_IMPORT_LIB_MISSING',
-                            message: `条目「${validated.value.key}」缺少所属库`,
-                        }));
-                    }
-                    const writing = validateTagEntryWriting(
-                        normalizeTagLibraryKind(libRow.kind),
-                        validated.value.key,
-                        validated.value.value,
-                    );
-                    if (!writing.ok) {
-                        return Err(writing.error);
-                    }
-                    const secondaryOk = assertSecondaryFieldsAllowed(
-                        normalizeTagLibraryKind(libRow.kind),
-                        raw,
-                    );
-                    if (!secondaryOk.ok) {
-                        return Err(secondaryOk.error);
-                    }
+                for (const entry of validatedEntries) {
+                    const mappedLibId = libIdMap.get(entry.libraryId) || entry.libraryId;
                     const decision = resolveDuplicate({
-                        incoming: validated.value,
-                        existing: entryById.get(validated.value.id),
+                        incoming: { ...entry, libraryId: mappedLibId },
+                        existing: entryById.get(entry.id),
                         strategy,
                         idPrefix: 'te',
                     });

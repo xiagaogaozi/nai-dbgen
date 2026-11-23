@@ -18,6 +18,26 @@
 import { t } from '../i18n/zh-CN.js';
 import { createButton } from './controls.js';
 import { safeImageUrl } from './safe-url.js';
+import { yieldMain } from '../../infra/yield-main.js';
+
+/** 预览表每页渲染上限，避免数千条一次性插入 DOM 卡死主线程。 */
+const PREVIEW_PAGE_SIZE = 100;
+
+/**
+ * 统一构造 JSON 导出文件名：nai-dbgen-<模块>[-版本]-<时间戳>.json
+ * @param {string} category 中文或模块标识，如「画师串」「标签库」「角色库」
+ * @param {string} [variant] 可选附加标识，如「V4」「V5」「V4V5」
+ * @param {number|string} [stamp]
+ * @returns {string}
+ */
+export function buildExportFilename(category, variant = '', stamp = Date.now()) {
+    const clean = (s) => String(s ?? '').trim().replace(/[\\/:*?"<>|\s]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    const parts = ['nai-dbgen', clean(category) || '导出'];
+    const v = clean(variant);
+    if (v) parts.push(v);
+    parts.push(String(stamp));
+    return `${parts.join('-')}.json`;
+}
 
 /** @type {readonly string[]} */
 const FLAT_LEAF_KEYS = Object.freeze([
@@ -328,17 +348,17 @@ export function downloadJson(data, filename) {
     if (typeof Blob !== 'undefined' && data instanceof Blob) {
         blob = data;
     } else if (Array.isArray(data)) {
-        // 分段拼 Blob，避免一次性 JSON.stringify 整个巨数组卡死
+        // 分段紧凑拼 Blob，避免一次性 JSON.stringify 整个巨数组卡死并减小体积
         /** @type {BlobPart[]} */
-        const parts = ['[\n'];
+        const parts = ['['];
         for (let i = 0; i < data.length; i += 1) {
-            if (i > 0) parts.push(',\n');
-            parts.push(JSON.stringify(data[i], null, 2));
+            if (i > 0) parts.push(',');
+            parts.push(JSON.stringify(data[i]));
         }
-        parts.push('\n]');
+        parts.push(']');
         blob = new Blob(parts, { type: 'application/json' });
     } else {
-        const text = JSON.stringify(data ?? {}, null, 2);
+        const text = JSON.stringify(data ?? {});
         blob = new Blob([text], { type: 'application/json' });
     }
     const url = URL.createObjectURL(blob);
@@ -462,6 +482,7 @@ export function mountImportExport(root, deps) {
 
     const preview = document.createElement('section');
     preview.className = 'nd-import-preview nd-hidden';
+    const exportCategory = deps?.exportCategory ? String(deps.exportCategory) : '导出';
 
     const toolbar = document.createElement('div');
     toolbar.className = 'nd-import-preview__toolbar';
@@ -586,7 +607,7 @@ export function mountImportExport(root, deps) {
             setError('');
         }
 
-        /** @type {Map<string, { item: object, checked: boolean, check: HTMLInputElement }[]>} */
+        /** @type {Map<string, { item: object, checked: boolean, check?: HTMLInputElement }[]>} */
         const groups = new Map();
         for (const row of previewRows) {
             const title = previewGroupTitle(row.item);
@@ -599,60 +620,112 @@ export function mountImportExport(root, deps) {
             groups.set('', previewRows.map((row) => /** @type {any} */ (row)));
         }
 
+        /** @type {{ type: 'group', title: string, members: any[] } | { type: 'row', title: string, row: any }} */
+        const flatPlan = [];
         for (const [title, members] of groups) {
-            if (title) {
-                const head = document.createElement('tr');
-                head.className = 'nd-import-group';
-                const tdName = document.createElement('td');
-                tdName.colSpan = 3;
-                tdName.textContent = `${title}（${members.length}）`;
-                if (!replaceOnly) {
-                    const tdCheck = document.createElement('td');
-                    const groupCheck = document.createElement('input');
-                    groupCheck.type = 'checkbox';
-                    groupCheck.checked = true;
-                    groupCheck.addEventListener('change', () => {
-                        for (const member of members) {
-                            member.checked = groupCheck.checked;
-                            if (member.check) member.check.checked = groupCheck.checked;
-                        }
-                    });
-                    tdCheck.appendChild(groupCheck);
-                    head.append(tdCheck, tdName);
-                } else {
-                    tdName.colSpan = 3;
-                    head.appendChild(tdName);
-                }
-                tbody.appendChild(head);
-            }
-            for (const row of members) {
-                const tr = document.createElement('tr');
-                if (title) tr.classList.add('nd-import-child');
-                let tdCheck = null;
-                if (!replaceOnly) {
-                    tdCheck = document.createElement('td');
-                    const check = document.createElement('input');
-                    check.type = 'checkbox';
-                    check.checked = true;
-                    row.check = check;
-                    check.addEventListener('change', () => { row.checked = check.checked; });
-                    tdCheck.appendChild(check);
-                }
-                const meta = rowMeta(row.item);
-                const tdName = document.createElement('td');
-                tdName.textContent = meta.name;
-                const tdId = document.createElement('td');
-                tdId.textContent = meta.id;
-                const tdKind = document.createElement('td');
-                tdKind.textContent = meta.kind === `library:${row.item._libraryName}`
-                    || meta.kind === `group:${row.item._groupName}`
-                    ? ''
-                    : meta.kind;
-                if (tdCheck) tr.appendChild(tdCheck);
-                tr.append(tdName, tdId, tdKind);
-                tbody.appendChild(tr);
-            }
+            if (title) flatPlan.push({ type: 'group', title, members });
+            for (const row of members) flatPlan.push({ type: 'row', title, row });
         }
+
+        let renderedCount = 0;
+        /** @type {HTMLTableRowElement|null} */
+        let moreRow = null;
+
+        /**
+         * 分批插入 DOM，避免几千行预览把主线程卡死；未渲染行的勾选状态仍完整保留在 previewRows 中。
+         * @param {number} batchSize
+         */
+        function renderChunk(batchSize) {
+            if (moreRow) {
+                moreRow.remove();
+                moreRow = null;
+            }
+            const end = Math.min(flatPlan.length, renderedCount + batchSize);
+            const frag = typeof document.createDocumentFragment === 'function'
+                ? document.createDocumentFragment()
+                : null;
+            const append = (tr) => (frag ? frag.appendChild(tr) : tbody.appendChild(tr));
+
+            for (let i = renderedCount; i < end; i += 1) {
+                const entry = flatPlan[i];
+                if (entry.type === 'group') {
+                    const head = document.createElement('tr');
+                    head.className = 'nd-import-group';
+                    const tdName = document.createElement('td');
+                    tdName.colSpan = 3;
+                    tdName.textContent = `${entry.title}（${entry.members.length}）`;
+                    if (!replaceOnly) {
+                        const tdCheck = document.createElement('td');
+                        const groupCheck = document.createElement('input');
+                        groupCheck.type = 'checkbox';
+                        groupCheck.checked = entry.members.every((m) => m.checked);
+                        groupCheck.addEventListener('change', () => {
+                            for (const member of entry.members) {
+                                member.checked = groupCheck.checked;
+                                if (member.check) member.check.checked = groupCheck.checked;
+                            }
+                        });
+                        tdCheck.appendChild(groupCheck);
+                        head.append(tdCheck, tdName);
+                    } else {
+                        head.appendChild(tdName);
+                    }
+                    append(head);
+                } else {
+                    const { row, title } = entry;
+                    const tr = document.createElement('tr');
+                    if (title) tr.classList.add('nd-import-child');
+                    let tdCheck = null;
+                    if (!replaceOnly) {
+                        tdCheck = document.createElement('td');
+                        const check = document.createElement('input');
+                        check.type = 'checkbox';
+                        check.checked = Boolean(row.checked);
+                        row.check = check;
+                        check.addEventListener('change', () => { row.checked = check.checked; });
+                        tdCheck.appendChild(check);
+                    }
+                    const meta = rowMeta(row.item);
+                    const tdName = document.createElement('td');
+                    tdName.textContent = meta.name;
+                    const tdId = document.createElement('td');
+                    tdId.textContent = meta.id;
+                    const tdKind = document.createElement('td');
+                    tdKind.textContent = meta.kind === `library:${row.item._libraryName}`
+                        || meta.kind === `group:${row.item._groupName}`
+                        ? ''
+                        : meta.kind;
+                    if (tdCheck) tr.appendChild(tdCheck);
+                    tr.append(tdName, tdId, tdKind);
+                    append(tr);
+                }
+            }
+            renderedCount = end;
+
+            const remaining = flatPlan.length - renderedCount;
+            if (remaining > 0) {
+                moreRow = document.createElement('tr');
+                moreRow.className = 'nd-import-more';
+                const td = document.createElement('td');
+                td.colSpan = replaceOnly ? 3 : 4;
+                const moreBtn = createButton({
+                    label: `加载更多（剩余 ${remaining} 行，其余默认已勾选）`,
+                    variant: 'ghost',
+                    onClick: () => renderChunk(PREVIEW_PAGE_SIZE),
+                });
+                const allBtn = createButton({
+                    label: '展开全部',
+                    variant: 'ghost',
+                    onClick: () => renderChunk(remaining),
+                });
+                td.append(moreBtn, allBtn);
+                moreRow.appendChild(td);
+                append(moreRow);
+            }
+            if (frag) tbody.appendChild(frag);
+        }
+
+        renderChunk(PREVIEW_PAGE_SIZE);
 
         preview.classList.remove('nd-hidden');
     }
@@ -714,7 +787,7 @@ export function mountImportExport(root, deps) {
             return;
         }
         try {
-            downloadJson(filtered, `nai-dbgen-export-${Date.now()}.json`);
+            downloadJson(filtered, buildExportFilename(exportCategory));
             statusEl.textContent = `已导出 ${checked.filter(Boolean).length} 条`;
             setError('');
         } catch (err) {
@@ -806,9 +879,18 @@ export function mountImportExport(root, deps) {
      */
     async function previewFromFile(file) {
         try {
+            setError('');
+            statusEl.textContent = `正在读取 ${file.name || '文件'}…`;
+            await yieldMain();
             const text = await file.text();
+            if (destroyed) return;
+            statusEl.textContent = '正在解析…';
+            await yieldMain();
+            if (destroyed) return;
             previewFromText(text, file.name || 'file');
+            statusEl.textContent = '';
         } catch (err) {
+            statusEl.textContent = '';
             setError(err instanceof Error ? err.message : String(err));
         }
     }

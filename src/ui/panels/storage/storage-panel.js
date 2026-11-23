@@ -7,7 +7,7 @@ import { openSlotImageViewer } from '../../common/image-viewer.js';
 import { detectImageMime, imageExtension, requestImageDownload } from '../../common/image-download.js';
 import { readPngCaption } from '../../common/png-caption.js';
 import { matchImageArtist } from '../../common/image-artist-match.js';
-import { confirmDanger, el, setText, toast, settingsApi } from '../_lib/panel-kit.js';
+import { bindSelectionOutsideExit, confirmDanger, el, setText, toast, settingsApi } from '../_lib/panel-kit.js';
 
 /**
  * @param {number} bytes
@@ -104,13 +104,14 @@ export function mountStoragePanel(root, deps) {
     const bulk = el('div', 'nd-cache-selection__bulk');
     bulk.hidden = true;
     const counter = el('span', 'nd-muted');
-    const selectButton = createButton({ label: '选择', variant: 'ghost', onClick: () => {
-        selecting = !selecting;
+    function setSelecting(next) {
+        selecting = Boolean(next);
         if (!selecting) selectedIds.clear();
         selectButton.textContent = selecting ? '完成' : '选择';
         bulk.hidden = !selecting;
         syncSelection();
-    }});
+    }
+    const selectButton = createButton({ label: '选择', variant: 'ghost', onClick: () => setSelecting(!selecting) });
     const selectAll = createButton({ label: '全选', variant: 'ghost', onClick: () => { for (const row of galleryItems) selectedIds.add(String(row.id)); syncSelection(); } });
     const selectNone = createButton({ label: '取消选择', variant: 'ghost', onClick: () => { selectedIds.clear(); syncSelection(); } });
     const download = createButton({ label: '下载所选', variant: 'primary', onClick: () => {
@@ -152,6 +153,11 @@ export function mountStoragePanel(root, deps) {
 
     shell.append(sessionBlock, cacheBlock);
     root.appendChild(shell);
+
+    const unbindOutside = bindSelectionOutsideExit(shell, {
+        isActive: () => selecting,
+        onExit: () => setSelecting(false),
+    });
 
     let destroyed = false;
 
@@ -478,6 +484,7 @@ export function mountStoragePanel(root, deps) {
         },
         destroy() {
             destroyed = true;
+            unbindOutside();
             try {
                 limitField.destroy?.();
             } catch {

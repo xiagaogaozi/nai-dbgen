@@ -6,6 +6,7 @@
  */
 
 import { createButton, createField, createInlineError } from '../../common/controls.js';
+import { buildExportFilename, downloadJson } from '../../common/import-export.js';
 import { paintSafeCover } from '../../common/safe-url.js';
 import { openSlotImageViewer } from '../../common/image-viewer.js';
 import {
@@ -37,6 +38,7 @@ import {
     labeledTextarea,
     idNow,
     settingsApi,
+    bindSelectionOutsideExit,
     confirmAsk,
     confirmDanger,
     openImportExportModal,
@@ -139,6 +141,20 @@ export function mountArtistPanel(root, deps) {
         variant: 'ghost',
         onClick: () => view?.clearSelection(),
     });
+    /** @type {AbortController|null} 导出所选进行中 */
+    let exportAbort = null;
+    const exportSelectedBtn = createButton({
+        label: '导出所选',
+        variant: 'ghost',
+        onClick: () => {
+            if (exportAbort) {
+                exportAbort.abort();
+                return;
+            }
+            void exportSelectedArtists();
+        },
+    });
+    exportSelectedBtn.disabled = true;
     const deleteSelectedBtn = createButton({
         label: '删除所选',
         variant: 'danger',
@@ -167,7 +183,7 @@ export function mountArtistPanel(root, deps) {
     });
     batchPreviewBtn.disabled = true;
     // 0.2.47：批量按钮并入版本筛选行（与 全部/v4.5/v5 同行同尺寸），“已选 N”放到“共 N 条”旁边
-    const bulkBtns = [selectAllBtn, clearSelectBtn, deleteSelectedBtn, ...switchTagBtns, batchPreviewBtn];
+    const bulkBtns = [selectAllBtn, clearSelectBtn, exportSelectedBtn, deleteSelectedBtn, ...switchTagBtns, batchPreviewBtn];
     for (const btn of bulkBtns) btn.classList.add('nd-artist-bulk__btn');
     const bulkSep = el('span', 'nd-artist-filter-row__sep');
     bulkSep.setAttribute('aria-hidden', 'true');
@@ -182,15 +198,19 @@ export function mountArtistPanel(root, deps) {
     let batchAbort = null;
     let selectedCount = 0;
 
+    function setSelectionModeUi(next) {
+        view?.setSelectionMode(next);
+        showBulk(next);
+        setText(selectModeBtn, next ? '完成' : '选择');
+        selectModeBtn.setAttribute('aria-pressed', next ? 'true' : 'false');
+    }
+
     const selectModeBtn = createButton({
         label: '选择',
         variant: 'ghost',
         onClick: () => {
             const next = !(view?.isSelectionMode() ?? false);
-            view?.setSelectionMode(next);
-            showBulk(next);
-            setText(selectModeBtn, next ? '完成' : '选择');
-            selectModeBtn.setAttribute('aria-pressed', next ? 'true' : 'false');
+            setSelectionModeUi(next);
         },
     });
     selectModeBtn.setAttribute('aria-pressed', 'false');
@@ -203,10 +223,74 @@ export function mountArtistPanel(root, deps) {
         selectedCount = count;
         setText(bulkCount, `已选 ${count}`);
         const idle = count === 0;
+        if (!exportAbort) exportSelectedBtn.disabled = idle;
         deleteSelectedBtn.disabled = idle;
         for (const btn of switchTagBtns) btn.disabled = idle;
         if (!batchAbort) batchPreviewBtn.disabled = idle;
     }
+
+    /**
+     * 按当前勾选的画师串精准导出（不读取未选中的原图），文件名标明 V4 / V5 / V4V5。
+     */
+    async function exportSelectedArtists() {
+        if (exportAbort) return;
+        const picked = view?.getSelectedIds() || [];
+        if (!picked.length) return;
+        const pickedSet = new Set(picked.map((id) => String(id)));
+        const all = await awaitRepo(host, repo.list(), '读取画师串失败') || [];
+        const selectedRows = all.filter((row) => pickedSet.has(String(row.id)));
+        if (!selectedRows.length) {
+            toast(host, 'warning', '没有可导出的画师串');
+            return;
+        }
+        const hasV4 = selectedRows.some((row) => resolveArtistModelTag(row) === 'v4.5');
+        const hasV5 = selectedRows.some((row) => resolveArtistModelTag(row) === 'v5');
+        const versionTag = hasV4 && hasV5 ? 'V4V5' : (hasV4 ? 'V4' : 'V5');
+
+        const controller = new AbortController();
+        exportAbort = controller;
+        exportSelectedBtn.disabled = false;
+        /** @type {string[]} */
+        const warnings = [];
+        try {
+            const r = await repo.exportJson({
+                ids: selectedRows.map((row) => String(row.id)),
+                signal: controller.signal,
+                onProgress: (p) => {
+                    if (!destroyed) setText(exportSelectedBtn, `取消导出（${p.index}/${p.total}）`);
+                },
+                onWarning: (message) => warnings.push(message),
+            });
+            if (destroyed || controller.signal.aborted) return;
+            if (!r?.ok) {
+                toast(host, 'error', r?.error?.message || '导出画师串失败');
+                return;
+            }
+            const filename = buildExportFilename('画师串', versionTag);
+            downloadJson(r.value, filename);
+            if (warnings.length) {
+                toast(host, 'warning', `有 ${warnings.length} 条没有原图，已按无图导出`);
+            }
+            if (hasV4 && hasV5) {
+                toast(host, 'info', `已混合导出 V4.5 与 V5 共 ${r.value.length} 条画师串（导入时请按需要选择版本）`);
+            } else {
+                toast(host, 'success', `已导出 ${r.value.length} 条画师串（${versionTag}）`);
+            }
+        } catch (err) {
+            if (!destroyed && !controller.signal.aborted) {
+                toast(host, 'error', err instanceof Error ? err.message : '导出画师串失败');
+            }
+        } finally {
+            exportAbort = null;
+            if (!destroyed) {
+                setText(exportSelectedBtn, '导出所选');
+                exportSelectedBtn.disabled = selectedCount === 0;
+            }
+        }
+    }
+    cleanups.push(() => {
+        exportAbort?.abort();
+    });
 
     /**
      * 勾选的画师串逐条生成预览图（串行；失败跳过；可停止）。
@@ -325,7 +409,6 @@ export function mountArtistPanel(root, deps) {
         onEdit: (item) => void openEditor(item),
         onDelete: (idsToDelete) => void removeItems(idsToDelete),
         onImport: () => void openImport('import'),
-        onExport: () => void openImport('export'),
         onCoverClick: (item) => void openFullImage(item),
     }, {
         cover: true,
@@ -730,7 +813,7 @@ export function mountArtistPanel(root, deps) {
                     if (ioAbort === controller) ioAbort = null;
                 }
             },
-            () => void view?.refresh(),
+            typeof repo.onChanged === 'function' ? undefined : () => void view?.refresh(),
             {
                 mode,
                 leading: tagChecks.el,
@@ -760,6 +843,11 @@ export function mountArtistPanel(root, deps) {
             },
         );
     }
+
+    cleanups.push(bindSelectionOutsideExit(shell, {
+        isActive: () => Boolean(view?.isSelectionMode()) && !batchAbort && !exportAbort,
+        onExit: () => setSelectionModeUi(false),
+    }));
 
     if (typeof repo.onChanged === 'function') {
         cleanups.push(repo.onChanged(() => void view?.refresh()));

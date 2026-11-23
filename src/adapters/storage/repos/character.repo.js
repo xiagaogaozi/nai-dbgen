@@ -4,6 +4,7 @@
  */
 
 import { Ok, Err } from '../../../infra/result.js';
+import { yieldMain } from '../../../infra/yield-main.js';
 import { configError } from '../../../infra/errors.js';
 import { mapIdbError, IDB_STORES } from '../idb.js';
 import {
@@ -198,10 +199,18 @@ export function createCharacterRepo(deps) {
             const charsIn = Array.isArray(body.characters) ? body.characters : [];
             const total = groupsIn.length + charsIn.length;
             let done = 0;
-            const report = (name) => {
+            let lastYieldAt = 0;
+            const report = async (name) => {
                 done += 1;
                 if (typeof opts?.onProgress === 'function') {
-                    opts.onProgress({ index: done, total, name });
+                    opts.onProgress({ index: done, total: total || 1, name });
+                }
+                const now = typeof performance !== 'undefined' && performance.now
+                    ? performance.now()
+                    : Date.now();
+                if (now - lastYieldAt >= 32 || done === 1 || done === total) {
+                    lastYieldAt = now;
+                    await yieldMain();
                 }
             };
 
@@ -221,7 +230,7 @@ export function createCharacterRepo(deps) {
                 const groupById = new Map(existingGroups.map((g) => [g.id, g]));
 
                 for (const raw of groupsIn) {
-                    report(raw?.name || raw?.id || '');
+                    await report(raw?.name || raw?.id || '');
                     const validated = validateCharacterGroup(raw);
                     if (!validated.ok) {
                         errors.push(validated.error.message);
@@ -248,7 +257,7 @@ export function createCharacterRepo(deps) {
                 const charById = new Map(existingChars.map((c) => [c.id, c]));
 
                 for (const raw of charsIn) {
-                    report(raw?.name || raw?.id || '');
+                    await report(raw?.name || raw?.id || '');
                     const mappedGroupId = groupIdMap.get(raw?.groupId) || raw?.groupId;
                     const validated = validateCharacter({
                         ...raw,

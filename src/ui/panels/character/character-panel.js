@@ -5,6 +5,7 @@
 
 import { createLibraryToolbar } from '../../common/library-chrome.js';
 import { createButton, createMiniAction, createField, createToggle, createCheckbox, createFieldGroup, createInlineError } from '../../common/controls.js';
+import { buildExportFilename, downloadJson } from '../../common/import-export.js';
 import {
     mountNestedList,
     paintNestedChildTexts,
@@ -12,16 +13,20 @@ import {
 } from '../../common/nested-list.js';
 import { createStore } from '../../common/store.js';
 import {
+    CHARACTER_SCHEMA_VERSION,
     createCharacter,
     createCharacterGroup,
     normalizeKeywords,
 } from '../../../domain/model/character.js';
+import { buildExportEnvelope } from '../../../adapters/storage/import-export.js';
 import { filterNestedLibrary, applyFormFields } from '../_lib/library-logic.js';
 import {
     el,
     setText,
     labeledTextarea,
     idNow,
+    bindSelectionOutsideExit,
+    countOverwriteByIds,
     confirmDanger,
     openImportExportModal,
     openFormModal,
@@ -71,34 +76,42 @@ export function mountCharacterPanel(root, deps) {
         variant: 'ghost',
         onClick: () => clearSelection(),
     });
+    const exportSelectedBtn = createButton({
+        label: '导出所选',
+        variant: 'ghost',
+        onClick: () => exportSelected(),
+    });
+    exportSelectedBtn.disabled = true;
     const deleteSelectedBtn = createButton({
         label: '删除所选',
         variant: 'danger',
         onClick: () => void removeSelected(),
     });
     deleteSelectedBtn.disabled = true;
-    for (const btn of [selectAllBtn, clearSelectBtn, deleteSelectedBtn]) {
+    for (const btn of [selectAllBtn, clearSelectBtn, exportSelectedBtn, deleteSelectedBtn]) {
         btn.classList.add('nd-artist-bulk__btn');
     }
     const bulkBar = el('div', 'nd-bulk-bar');
     bulkBar.hidden = true;
-    bulkBar.append(selectAllBtn, clearSelectBtn, deleteSelectedBtn, bulkCount);
+    bulkBar.append(selectAllBtn, clearSelectBtn, exportSelectedBtn, deleteSelectedBtn, bulkCount);
+
+    function setSelectionModeUi(next) {
+        selectionMode = Boolean(next);
+        if (!selectionMode) {
+            selectedGroupIds.clear();
+            selectedCharIds.clear();
+        }
+        bulkBar.hidden = !selectionMode;
+        setText(selectModeBtn, selectionMode ? '完成' : '选择');
+        selectModeBtn.setAttribute('aria-pressed', selectionMode ? 'true' : 'false');
+        syncBulk();
+        nested?.refresh();
+    }
 
     const selectModeBtn = createButton({
         label: '选择',
         variant: 'ghost',
-        onClick: () => {
-            selectionMode = !selectionMode;
-            if (!selectionMode) {
-                selectedGroupIds.clear();
-                selectedCharIds.clear();
-            }
-            bulkBar.hidden = !selectionMode;
-            setText(selectModeBtn, selectionMode ? '完成' : '选择');
-            selectModeBtn.setAttribute('aria-pressed', selectionMode ? 'true' : 'false');
-            syncBulk();
-            nested?.refresh();
-        },
+        onClick: () => setSelectionModeUi(!selectionMode),
     });
     selectModeBtn.setAttribute('aria-pressed', 'false');
 
@@ -109,7 +122,6 @@ export function mountCharacterPanel(root, deps) {
         onCreate: () => void openGroupEditor(null),
         leading: [selectModeBtn],
         onImport: () => void openImport('import'),
-        onExport: () => void doExport(),
         extra: (() => {
             const wrap = el('label', 'nd-checkbox-row');
             const input = document.createElement('input');
@@ -161,7 +173,47 @@ export function mountCharacterPanel(root, deps) {
         if (groups.length) parts.push(`${groups.length} 个组`);
         if (chars.length) parts.push(`${chars.length} 个角色`);
         setText(bulkCount, parts.length ? `已选 ${parts.join('、')}` : '已选 0');
-        deleteSelectedBtn.disabled = groups.length === 0 && chars.length === 0;
+        const empty = groups.length === 0 && chars.length === 0;
+        exportSelectedBtn.disabled = empty;
+        deleteSelectedBtn.disabled = empty;
+    }
+
+    function exportSelected() {
+        const s = store.get();
+        const { groups, chars } = resolveSelectionTargets();
+        if (!groups.length && !chars.length) return;
+        const groupById = new Map(s.groups.map((g) => [String(g.id), g]));
+        /** @type {Map<string, object>} */
+        const outGroups = new Map();
+        /** @type {object[]} */
+        const outChars = [];
+        for (const group of groups) {
+            const gid = String(group.id);
+            outGroups.set(gid, group);
+            for (const ch of s.byGroup.get(gid) || []) {
+                outChars.push(ch);
+            }
+        }
+        for (const ch of chars) {
+            const gid = String(ch.groupId ?? '');
+            const parent = groupById.get(gid);
+            if (parent) outGroups.set(gid, parent);
+            outChars.push(ch);
+        }
+        const payload = buildExportEnvelope({
+            kind: 'character',
+            schemaVersion: CHARACTER_SCHEMA_VERSION,
+            payload: {
+                groups: [...outGroups.values()],
+                characters: outChars,
+            },
+        });
+        try {
+            downloadJson(payload, buildExportFilename('角色库'));
+            toast(host, 'success', `已导出 ${outGroups.size} 个角色组，共 ${outChars.length} 个角色`);
+        } catch (cause) {
+            toast(host, 'error', cause instanceof Error ? cause.message : '导出角色库失败');
+        }
     }
 
     function pruneSelection() {
@@ -576,14 +628,27 @@ export function mountCharacterPanel(root, deps) {
                 if (!r.ok) throw new Error(r.error?.message || '导出失败');
                 return r.value;
             },
-            () => void refresh(),
-            { mode },
+            typeof repo.onChanged === 'function' ? undefined : () => void refresh(),
+            {
+                mode,
+                exportCategory: '角色库',
+                countOverwrite: (rows) => countOverwriteByIds(rows, () => {
+                    const ids = [];
+                    for (const list of store.get().byGroup.values()) {
+                        for (const ch of list || []) {
+                            if (ch?.id != null) ids.push(String(ch.id));
+                        }
+                    }
+                    return ids;
+                }),
+            },
         );
     }
 
-    async function doExport() {
-        await openImport('export');
-    }
+    cleanups.push(bindSelectionOutsideExit(shell, {
+        isActive: () => selectionMode,
+        onExit: () => setSelectionModeUi(false),
+    }));
 
     if (typeof repo.onChanged === 'function') {
         cleanups.push(repo.onChanged(() => {

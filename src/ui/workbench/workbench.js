@@ -24,7 +24,7 @@ import {
 import { createNaiParamsForm } from '../common/nai-params-form.js';
 import { mountCurrentPicker } from '../common/current-picker.js';
 import { openModal } from '../common/modal.js';
-import { downloadJson } from '../common/import-export.js';
+import { buildExportFilename, downloadJson } from '../common/import-export.js';
 import { confirmDanger, openImportExportModal } from '../panels/_lib/panel-kit.js';
 import { validateMarketCatalog } from '../../adapters/storage/market-catalog.store.js';
 import {
@@ -1238,7 +1238,7 @@ export function mountWorkbench(root, deps) {
             return;
         }
         try {
-            downloadJson(result.value, 'nai-dbgen-market-supermarket.json');
+            downloadJson(result.value, buildExportFilename('标签超市'));
         } catch (error) {
             toast(host, 'error', error instanceof Error ? error.message : '导出标签超市失败');
         }

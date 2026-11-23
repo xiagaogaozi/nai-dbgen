@@ -29,7 +29,7 @@ import {
     pickArtistImportFields,
     toImageDataUrl,
 } from '../artist-io.js';
-import { artistLocalImageId, blobToBase64 } from '../artist-preview-files.js';
+import { artistLocalImageId, blobToDataUrl } from '../artist-preview-files.js';
 import { dataUrlToBlob } from '../image-scale.js';
 
 /**
@@ -92,9 +92,13 @@ async function readLocalArtistDataUrl(imageRepo, ref, label) {
         }));
     }
     const blob = got.value;
+    const dataUrl = await blobToDataUrl(blob);
+    if (dataUrl && dataUrl.startsWith('data:image/')) {
+        return Ok(dataUrl);
+    }
     const ext = blob.type === 'image/webp' ? 'webp' : 'png';
-    const b64 = await blobToBase64(blob);
-    return Ok(toImageDataUrl(ext, b64));
+    const comma = dataUrl.indexOf(',');
+    return Ok(toImageDataUrl(ext, comma >= 0 ? dataUrl.slice(comma + 1) : ''));
 }
 
 /**
@@ -244,8 +248,9 @@ export function createArtistRepo(deps) {
         /**
          * 导出裸数组五字段；按 sequence 排序。
          * 原图读不到就留空并继续，不中断整次导出。
-         * 传入 modelTag 时只导出该版本。
+         * 传入 ids 时仅导出指定条目；传入 modelTag 时只导出该版本。
          * @param {{
+         *   ids?: string[],
          *   modelTag?: string,
          *   onWarning?: (message: string) => void,
          *   onProgress?: (p: { index: number, total: number, name: string }) => void,
@@ -259,15 +264,20 @@ export function createArtistRepo(deps) {
             const modelTag = opts.modelTag != null && opts.modelTag !== ''
                 ? resolveArtistModelTag(opts.modelTag)
                 : '';
+            const idSet = Array.isArray(opts.ids)
+                ? new Set(opts.ids.filter((id) => id != null && id !== '').map((id) => String(id)))
+                : null;
 
             try {
                 const aborted0 = abortIfNeeded(signal);
                 if (aborted0) return aborted0;
 
                 const items = normalizeList(await db.getAll(storeName))
-                    .filter((artist) => !modelTag || artist.modelTag === modelTag);
+                    .filter((artist) => (!idSet || idSet.has(String(artist.id)))
+                        && (!modelTag || artist.modelTag === modelTag));
                 /** @type {ReturnType<typeof buildArtistExportRow>[]} */
                 const out = [];
+                let lastYieldAt = 0;
 
                 for (let i = 0; i < items.length; i += 1) {
                     const aborted = abortIfNeeded(signal);
@@ -276,6 +286,13 @@ export function createArtistRepo(deps) {
                     const artist = items[i];
                     if (onProgress) {
                         onProgress({ index: i + 1, total: items.length, name: artist.name });
+                    }
+                    const nowYield = typeof performance !== 'undefined' && performance.now
+                        ? performance.now()
+                        : Date.now();
+                    if (nowYield - lastYieldAt >= 32 || i === 0 || i === items.length - 1) {
+                        lastYieldAt = nowYield;
+                        await yieldMain();
                     }
 
                     /** @type {string|null} */
@@ -378,8 +395,10 @@ export function createArtistRepo(deps) {
                 /** 进度让出节流：每条都让出会在大批量时徒增数百 ms～数秒 */
                 let lastYieldAt = 0;
                 const YIELD_MIN_MS = 32;
+                const IMAGE_BATCH = 4;
 
-                for (let i = 0; i < rows.length; i += 1) {
+                // 先按批次小并发解码与缩放图片，再有序入库，显著缩短带图批量导入时间
+                for (let start = 0; start < rows.length; start += IMAGE_BATCH) {
                     const aborted = abortIfNeeded(signal);
                     if (aborted) {
                         if (toWrite.length) {
@@ -393,110 +412,138 @@ export function createArtistRepo(deps) {
                         return aborted;
                     }
 
-                    const row = rows[i];
-                    if (onProgress) {
-                        onProgress({ index: i + 1, total: rows.length, name: row.name });
-                    }
-                    // 让出主线程：进度文案可绘制；按时间节流，避免 N 次空转
-                    const nowYield = typeof performance !== 'undefined' && performance.now
-                        ? performance.now()
-                        : Date.now();
-                    if (nowYield - lastYieldAt >= YIELD_MIN_MS || i === 0 || i === rows.length - 1) {
-                        lastYieldAt = nowYield;
-                        await yieldMain();
-                    }
-
-                    const existingRow = byIdentity.get(artistDuplicateKey(row.name, importTag));
-                    if (existingRow && strategy === 'skip') {
-                        skipped += 1;
-                        continue;
-                    }
-
-                    let id;
-                    let createdAt;
-                    let name = row.name;
-                    /** @type {string|null} */
-                    let oldRef = null;
-                    /** @type {string|null} */
-                    let oldCard = null;
-
-                    if (existingRow && strategy === 'overwrite') {
-                        id = existingRow.id;
-                        createdAt = existingRow.createdAt;
-                        oldRef = existingRow.referenceImageRef;
-                        oldCard = existingRow.cardImageRef;
-                    } else {
-                        id = idFn('ar');
-                        createdAt = now;
-                        if (existingRow && strategy === 'rename') {
-                            name = `${row.name} · 导入副本`;
-                        }
-                    }
-
-                    /** @type {string|null} */
-                    let referenceImageRef = null;
-                    /** @type {string|null} */
-                    let cardImageRef = null;
-
-                    try {
-                        if (row.referenceImage) {
-                            const blob = await dataUrlToBlob(row.referenceImage);
-                            referenceImageRef = artistLocalImageId(name, 'ref', importTag);
-                            cardImageRef = artistLocalImageId(name, 'card', importTag);
-                            const up = await saveLocalArtistBlob(imageRepo, blob, referenceImageRef);
-                            if (!up.ok) {
-                                throw new Error(up.error.message || '原图保存失败');
-                            }
+                    const batch = rows.slice(start, start + IMAGE_BATCH);
+                    const prepared = await Promise.all(batch.map(async (row) => {
+                        const rawImg = row.referenceImage;
+                        if (!rawImg) return { row, blob: null, cardBlob: null, imgErr: null };
+                        try {
+                            const blob = await dataUrlToBlob(rawImg);
                             if (!makeCardImage) {
                                 throw new Error('卡片图处理不可用');
                             }
                             const cardBlob = await makeCardImage(blob);
-                            const cardUp = await saveLocalArtistBlob(imageRepo, cardBlob, cardImageRef);
-                            if (!cardUp.ok) {
-                                throw new Error(cardUp.error.message || '卡片图保存失败');
-                            }
-                            if (oldRef && oldRef !== referenceImageRef) {
-                                await dropLocalArtistBlob(imageRepo, oldRef);
-                            }
-                            if (oldCard && oldCard !== cardImageRef) {
-                                await dropLocalArtistBlob(imageRepo, oldCard);
-                            }
-                            oldRef = null;
-                            oldCard = null;
-                            row.referenceImage = null;
-                        } else if (strategy === 'overwrite') {
-                            await dropLocalArtistBlob(imageRepo, oldRef);
-                            await dropLocalArtistBlob(imageRepo, oldCard);
-                            oldRef = null;
-                            oldCard = null;
+                            return { row, blob, cardBlob, imgErr: null };
+                        } catch (err) {
+                            return { row, blob: null, cardBlob: null, imgErr: err };
                         }
-                    } catch (err) {
-                        errors.push(`「${row.name}」：${err instanceof Error ? err.message : String(err)}`);
-                        await dropLocalArtistBlob(imageRepo, referenceImageRef);
-                        await dropLocalArtistBlob(imageRepo, cardImageRef);
-                        continue;
-                    }
+                    }));
 
-                    const entity = artistFromImportRow({
-                        row: { ...row, name },
-                        id,
-                        now,
-                        createdAt,
-                        referenceImageRef,
-                        cardImageRef,
-                        modelTag: importTag,
-                    });
-                    const validated = validateArtist(entity);
-                    if (!validated.ok) {
-                        errors.push(`「${row.name}」：${validated.error.message}`);
-                        await dropLocalArtistBlob(imageRepo, referenceImageRef);
-                        await dropLocalArtistBlob(imageRepo, cardImageRef);
-                        continue;
-                    }
+                    for (let j = 0; j < prepared.length; j += 1) {
+                        const i = start + j;
+                        const abortedStep = abortIfNeeded(signal);
+                        if (abortedStep) {
+                            if (toWrite.length) {
+                                try {
+                                    await bulkWrite(toWrite);
+                                    changes.emit({ type: 'import', imported, skipped });
+                                } catch {
+                                    // ignore secondary write error on abort
+                                }
+                            }
+                            return abortedStep;
+                        }
 
-                    toWrite.push(validated.value);
-                    byIdentity.set(artistDuplicateKey(validated.value.name, validated.value.modelTag), validated.value);
-                    imported += 1;
+                        const { row, blob, cardBlob, imgErr } = prepared[j];
+                        if (onProgress) {
+                            onProgress({ index: i + 1, total: rows.length, name: row.name });
+                        }
+                        const nowYield = typeof performance !== 'undefined' && performance.now
+                            ? performance.now()
+                            : Date.now();
+                        if (nowYield - lastYieldAt >= YIELD_MIN_MS || i === 0 || i === rows.length - 1) {
+                            lastYieldAt = nowYield;
+                            await yieldMain();
+                        }
+
+                        const existingRow = byIdentity.get(artistDuplicateKey(row.name, importTag));
+                        if (existingRow && strategy === 'skip') {
+                            skipped += 1;
+                            row.referenceImage = null;
+                            continue;
+                        }
+
+                        let id;
+                        let createdAt;
+                        let name = row.name;
+                        /** @type {string|null} */
+                        let oldRef = null;
+                        /** @type {string|null} */
+                        let oldCard = null;
+
+                        if (existingRow && strategy === 'overwrite') {
+                            id = existingRow.id;
+                            createdAt = existingRow.createdAt;
+                            oldRef = existingRow.referenceImageRef;
+                            oldCard = existingRow.cardImageRef;
+                        } else {
+                            id = idFn('ar');
+                            createdAt = now;
+                            if (existingRow && strategy === 'rename') {
+                                name = `${row.name} · 导入副本`;
+                            }
+                        }
+
+                        /** @type {string|null} */
+                        let referenceImageRef = null;
+                        /** @type {string|null} */
+                        let cardImageRef = null;
+
+                        try {
+                            if (row.referenceImage) {
+                                if (imgErr) throw imgErr;
+                                referenceImageRef = artistLocalImageId(name, 'ref', importTag);
+                                cardImageRef = artistLocalImageId(name, 'card', importTag);
+                                const up = await saveLocalArtistBlob(imageRepo, blob, referenceImageRef);
+                                if (!up.ok) {
+                                    throw new Error(up.error.message || '原图保存失败');
+                                }
+                                const cardUp = await saveLocalArtistBlob(imageRepo, cardBlob, cardImageRef);
+                                if (!cardUp.ok) {
+                                    throw new Error(cardUp.error.message || '卡片图保存失败');
+                                }
+                                if (oldRef && oldRef !== referenceImageRef) {
+                                    await dropLocalArtistBlob(imageRepo, oldRef);
+                                }
+                                if (oldCard && oldCard !== cardImageRef) {
+                                    await dropLocalArtistBlob(imageRepo, oldCard);
+                                }
+                                oldRef = null;
+                                oldCard = null;
+                                row.referenceImage = null;
+                            } else if (strategy === 'overwrite') {
+                                await dropLocalArtistBlob(imageRepo, oldRef);
+                                await dropLocalArtistBlob(imageRepo, oldCard);
+                                oldRef = null;
+                                oldCard = null;
+                            }
+                        } catch (err) {
+                            errors.push(`「${row.name}」：${err instanceof Error ? err.message : String(err)}`);
+                            await dropLocalArtistBlob(imageRepo, referenceImageRef);
+                            await dropLocalArtistBlob(imageRepo, cardImageRef);
+                            continue;
+                        }
+
+                        const entity = artistFromImportRow({
+                            row: { ...row, name },
+                            id,
+                            now,
+                            createdAt,
+                            referenceImageRef,
+                            cardImageRef,
+                            modelTag: importTag,
+                        });
+                        const validated = validateArtist(entity);
+                        if (!validated.ok) {
+                            errors.push(`「${row.name}」：${validated.error.message}`);
+                            await dropLocalArtistBlob(imageRepo, referenceImageRef);
+                            await dropLocalArtistBlob(imageRepo, cardImageRef);
+                            continue;
+                        }
+
+                        toWrite.push(validated.value);
+                        byIdentity.set(artistDuplicateKey(validated.value.name, validated.value.modelTag), validated.value);
+                        imported += 1;
+                    }
                 }
 
                 if (toWrite.length) {
