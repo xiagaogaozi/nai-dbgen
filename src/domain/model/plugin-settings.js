@@ -188,7 +188,7 @@ export function followModelForArtistTag(settings, currentModel, tag) {
  * @property {boolean} confirmSlotRegenerate 双击重新生成前先确认。默认开。
  * @property {number} maxImagesPerFloor 每层楼最多生成几张图；-1 不限。
  * @property {'light'|'dark'} themeMode 插件界面配色；dark 为地雷色夜间模式。
- * @property {boolean} naiModelFollowsArtist 切换当前画师串时，模型系列不同就换成绑定模型。默认开。
+ * @property {boolean} naiModelFollowsArtist 切换当前画师串时，模型系列不同就换成绑定模型。默认关。
  * @property {{ v5: string, 'v4.5': string }} artistModelBinding 画师串版本绑定的生图模型。
  * @property {Record<string, boolean>} quickConfigVisibility
  *   快速配置悬浮窗各项显隐（id 见 QUICK_CONFIG_ITEMS）。没写的项按 defaultVisible。
@@ -235,7 +235,7 @@ export function defaultPluginSettings() {
         confirmSlotRegenerate: true,
         maxImagesPerFloor: -1,
         themeMode: 'light',
-        naiModelFollowsArtist: true,
+        naiModelFollowsArtist: false,
         artistModelBinding: { ...DEFAULT_ARTIST_MODEL_BINDING },
         quickConfigVisibility: {},
         includeWorldInfo: false,
@@ -324,7 +324,7 @@ export function normalizePluginSettings(obj) {
             ? Number(obj.maxImagesPerFloor)
             : -1,
         themeMode: obj.themeMode === 'dark' ? 'dark' : 'light',
-        naiModelFollowsArtist: obj.naiModelFollowsArtist !== false,
+        naiModelFollowsArtist: obj.naiModelFollowsArtist === true,
         artistModelBinding: normalizeArtistModelBinding(obj.artistModelBinding),
         quickConfigVisibility: normalizeQuickConfigVisibility(obj.quickConfigVisibility),
         includeWorldInfo: obj.includeWorldInfo === true && obj.includeWorldInfoCharacters !== true,

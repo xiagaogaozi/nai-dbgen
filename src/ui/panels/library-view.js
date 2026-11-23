@@ -49,6 +49,7 @@ import { el, setText } from './_lib/panel-kit.js';
  *   statusExtra?: HTMLElement,
  *   selectable?: boolean,
  *   selectionMode?: boolean,
+ *   showCheckbox?: boolean,
  *   onSelectionChange?: (ids: string[]) => void,
  *   toolbarLeading?: HTMLElement[],
  *   cardActions?: boolean,
@@ -81,6 +82,7 @@ export function mountLibraryView(root, deps, opts) {
     const searchKeys = opts?.searchKeys || ['name', 'key', 'model', 'baseUrl'];
     const showCover = opts?.cover === true;
     const selectable = opts?.selectable === true;
+    const showCheckbox = opts?.showCheckbox !== false;
     let selectionMode = selectable && opts?.selectionMode !== false;
     /** @type {Set<string>} */
     const selected = new Set();
@@ -267,6 +269,7 @@ export function mountLibraryView(root, deps, opts) {
                 title: String(item?.name ?? item?.key ?? item?.id ?? ''),
                 selected: Boolean(itemId) && selected.has(itemId),
                 onSelect: selecting ? setPicked : undefined,
+                selectHighlightOnly: selecting && !showCheckbox,
                 coverBadge: typeof opts?.coverBadge === 'function'
                     ? (opts.coverBadge(item) || undefined)
                     : undefined,

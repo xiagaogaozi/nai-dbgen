@@ -82,6 +82,11 @@ function parentLabelOf(parent, getLabel) {
  * @param {(parent: object, el: HTMLElement) => void} [deps.renderParentMeta]
  * @param {(parentId: string) => boolean} [deps.isExpanded]
  * @param {(parentId: string, expanded: boolean) => void} [deps.onExpandedChange]
+ * @param {() => boolean} [deps.isSelectionMode]
+ * @param {(parent: object) => boolean} [deps.isParentSelected]
+ * @param {(parent: object, block: HTMLElement) => void} [deps.onParentSelectToggle]
+ * @param {(child: object, parent: object) => boolean} [deps.isChildSelected]
+ * @param {(child: object, parent: object, row: HTMLElement) => void} [deps.onChildSelectToggle]
  * @param {boolean} [deps.virtualizeChildren=true]
  * @param {number} [deps.virtualThreshold=48]
  * @param {number} [deps.childRowHeight=NESTED_CHILD_ROW_HEIGHT]
@@ -105,6 +110,21 @@ export function mountNestedList(root, deps) {
         : (p) => Boolean(p?.enabled ?? p?.active ?? true);
     const onParentEnabledChange = deps?.onParentEnabledChange;
     const renderParentMeta = deps?.renderParentMeta;
+    const isSelectionMode = typeof deps?.isSelectionMode === 'function'
+        ? deps.isSelectionMode
+        : () => false;
+    const isParentSelected = typeof deps?.isParentSelected === 'function'
+        ? deps.isParentSelected
+        : () => false;
+    const onParentSelectToggle = typeof deps?.onParentSelectToggle === 'function'
+        ? deps.onParentSelectToggle
+        : null;
+    const isChildSelected = typeof deps?.isChildSelected === 'function'
+        ? deps.isChildSelected
+        : () => false;
+    const onChildSelectToggle = typeof deps?.onChildSelectToggle === 'function'
+        ? deps.onChildSelectToggle
+        : null;
     const virtualizeChildren = deps?.virtualizeChildren !== false;
     const virtualThreshold = Math.max(0, Number(deps?.virtualThreshold) || 48);
     const childRowHeight = Math.max(1, Number(deps?.childRowHeight) || NESTED_CHILD_ROW_HEIGHT);
@@ -153,6 +173,32 @@ export function mountNestedList(root, deps) {
         toggleHandles = [];
     }
 
+    /** @type {WeakMap<HTMLElement, (e: Event) => void>} 虚拟列表复用行只挂一次 click，替换回调不累积 */
+    const rowClickHandlers = new WeakMap();
+
+    /**
+     * @param {HTMLElement} row
+     * @param {object} child
+     * @param {object} parent
+     */
+    function bindChildSelection(row, child, parent) {
+        const selecting = Boolean(isSelectionMode()) && Boolean(onChildSelectToggle);
+        row.classList.toggle('is-selectable', selecting);
+        row.classList.toggle('is-selected', selecting && Boolean(isChildSelected(child, parent)));
+        if (!rowClickHandlers.has(row)) {
+            row.addEventListener('click', (e) => {
+                const fn = rowClickHandlers.get(row);
+                if (fn) fn(e);
+            });
+        }
+        rowClickHandlers.set(row, (e) => {
+            if (!isSelectionMode() || !onChildSelectToggle) return;
+            const target = /** @type {any} */ (e?.target);
+            if (target?.closest?.('button, input, label, a, select, textarea, .nd-toggle, .nd-toggle-row')) return;
+            onChildSelectToggle(child, parent, row);
+        });
+    }
+
     /**
      * @param {object} parent
      * @param {HTMLElement} body
@@ -176,8 +222,9 @@ export function mountNestedList(root, deps) {
             const handle = mountVirtualList(host, {
                 getItems: () => getChildren(parent) || [],
                 renderRow: (item, el) => {
-                    el.classList.add('nd-nested-list__child');
+                    el.className = 'nd-virtual-list__row nd-nested-list__child';
                     renderChild(item, el, parent);
+                    bindChildSelection(el, item, parent);
                 },
                 rowHeight: childRowHeight,
             });
@@ -193,6 +240,7 @@ export function mountNestedList(root, deps) {
             row.style.maxHeight = `${childRowHeight}px`;
             row.style.overflow = 'hidden';
             renderChild(child, row, parent);
+            bindChildSelection(row, child, parent);
             body.appendChild(row);
         }
     }
@@ -221,6 +269,9 @@ export function mountNestedList(root, deps) {
             block.dataset.parentId = id;
             if (!isParentEnabled(parent)) {
                 block.classList.add('is-disabled');
+            }
+            if (isSelectionMode() && isParentSelected(parent)) {
+                block.classList.add('is-selected');
             }
 
             const header = document.createElement('div');
@@ -268,10 +319,14 @@ export function mountNestedList(root, deps) {
             }
 
             block.appendChild(header);
-            // 0.2.48：点条目标题本身也能展开/收起；按钮、开关等交互控件除外
+            // 0.2.48：点条目标题本身也能展开/收起；选择模式下改为切换父级选中高亮
             header.addEventListener('click', (e) => {
                 const target = /** @type {any} */ (e?.target);
                 if (target?.closest?.('button, input, label, a, select, textarea, .nd-toggle, .nd-toggle-row')) return;
+                if (isSelectionMode() && onParentSelectToggle) {
+                    onParentSelectToggle(parent, block);
+                    return;
+                }
                 writeExpanded(id, !readExpanded(id));
                 paint();
             });

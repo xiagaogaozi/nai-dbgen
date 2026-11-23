@@ -1411,7 +1411,7 @@ export function mountWorkbench(root, deps) {
     /** 0.2.46：工作台换画师串时，模型系列不同就换成绑定模型（只换一次，不锁定）。 */
     function followWorkbenchModel(artist) {
         const settings = loadSettings() || {};
-        if (settings.naiModelFollowsArtist === false) return;
+        if (settings.naiModelFollowsArtist !== true) return;
         const cur = paramsForm.getValue();
         const next = followModelForArtistTag(settings, cur.model, resolveArtistModelTag(artist));
         if (!next) return;

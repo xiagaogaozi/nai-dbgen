@@ -278,6 +278,10 @@ describe('model/plugin-settings', () => {
         assert.equal(d.matchDefaults.caseSensitive, false);
         assert.equal(d.autoWriteSlots, false);
         assert.equal(d.hideFloatingBall, false);
+        assert.equal(d.enableTagMarket, false);
+        assert.equal(d.naiModelFollowsArtist, false);
+        assert.equal(d.slotDoubleTapRegenerate, false);
+        assert.equal(d.confirmSlotRegenerate, true);
         assert.equal(d.includeWorldInfo, false);
         assert.equal(d.includeWorldInfoCharacters, false);
         assert.equal(d.omitRecentSlots, false);

@@ -108,4 +108,39 @@ describe('image-cache-trim.service', () => {
         assert.equal(isErr(r), true);
         assert.equal(r.error.code, 'X');
     });
+
+    it('clearAll and removeRefs delete images and emit IMAGE_CACHE_TRIMMED', async () => {
+        const db = createMemoryIdb();
+        const imageRepo = createImageRepo({ db });
+        const blob = new Blob(['x'], { type: 'image/png' });
+        await db.put(IDB_STORES.IMAGES, {
+            id: 'a', blob, mimeType: 'image/png', size: 1,
+            createdAt: '2020-01-01T00:00:00.000Z', pinned: true,
+        });
+        await db.put(IDB_STORES.IMAGES, {
+            id: 'b', blob, mimeType: 'image/png', size: 1,
+            createdAt: '2021-01-01T00:00:00.000Z',
+        });
+
+        const bus = createEventBus();
+        /** @type {unknown[]} */
+        const events = [];
+        bus.on(APP_EVENTS.IMAGE_CACHE_TRIMMED, (p) => events.push(p));
+
+        const svc = createImageCacheTrimService({
+            loadSettings: () => ({ imageCacheLimit: 500 }),
+            imageRepo,
+            bus,
+        });
+        const r1 = await svc.removeRefs(['a']);
+        assert.equal(isOk(r1), true);
+        assert.deepEqual(r1.value.removedRefs, ['a']);
+        assert.equal(events.length, 1);
+
+        const r2 = await svc.clearAll();
+        assert.equal(isOk(r2), true);
+        assert.deepEqual(r2.value.removedRefs, ['b']);
+        assert.equal(events.length, 2);
+        assert.equal((await db.getAll(IDB_STORES.IMAGES)).length, 0);
+    });
 });

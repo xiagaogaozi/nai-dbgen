@@ -473,6 +473,41 @@ describe('image repo D22 / slot cache', () => {
         assert.equal(isErr(bad), true);
         assert.equal(bad.error.code, 'IMAGE_CACHE_LIMIT');
     });
+
+    it('trimToLimit includes pinned workbench images and clearCache / removeMany keep artist previews', async () => {
+        const db = createMemoryIdb();
+        const images = createImageRepo({ db });
+        const blob = new Blob(['x'], { type: 'image/png' });
+        await db.put(IDB_STORES.IMAGES, {
+            id: 'wb-old', blob, mimeType: 'image/png', size: 1,
+            createdAt: '2020-01-01T00:00:00.000Z', pinned: true,
+        });
+        await db.put(IDB_STORES.IMAGES, {
+            id: 'wb-mid', blob, mimeType: 'image/png', size: 1,
+            createdAt: '2021-01-01T00:00:00.000Z', pinned: true,
+        });
+        await db.put(IDB_STORES.IMAGES, {
+            id: 'slot-new', blob, mimeType: 'image/png', size: 1,
+            createdAt: '2022-01-01T00:00:00.000Z', pinned: false,
+        });
+        await images.put(blob, { id: 'artist-card:keep' });
+        await images.linkSlot('sess-1', 1, 'slot-new');
+
+        const trimmed = await images.trimToLimit(2);
+        assert.equal(isOk(trimmed), true);
+        assert.deepEqual(trimmed.value.removedRefs, ['wb-old']);
+
+        const removedMany = await images.removeMany(['wb-mid']);
+        assert.equal(isOk(removedMany), true);
+        assert.deepEqual(removedMany.value.removedRefs, ['wb-mid']);
+
+        const cleared = await images.clearCache();
+        assert.equal(isOk(cleared), true);
+        assert.deepEqual(cleared.value.removedRefs, ['slot-new']);
+        assert.equal((await db.getAll(IDB_STORES.IMAGES)).length, 0);
+        assert.equal(await db.get(IDB_STORES.SLOT_IMAGE_CACHE, ['sess-1', 1]), undefined);
+        assert.ok(await db.get(IDB_STORES.ARTIST_IMAGES, 'artist-card:keep'));
+    });
 });
 
 

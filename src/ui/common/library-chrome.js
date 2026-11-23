@@ -32,7 +32,8 @@ function el(tag, className) {
  * @param {unknown} [opts.coverUrl] 已解析的展示 URL（会过 safeImageUrl）；由面板经 artistFileUrl 注入解析
  * @param {boolean} [opts.active]
  * @param {boolean} [opts.selected]
- * @param {(on: boolean) => void} [opts.onSelect] 有则在卡片角上放勾选框
+ * @param {(on: boolean) => void} [opts.onSelect] 有则在卡片角上放勾选框（除非 selectHighlightOnly 为真）
+ * @param {boolean} [opts.selectHighlightOnly] 选中时只高亮卡片，不渲染勾选方框
  * @param {boolean} [opts.enabled]
  * @param {(v: boolean) => void} [opts.onEnabledChange] 有则渲染启用开关
  * @param {{ label: string, action?: string, variant?: string, onClick?: () => void }[]} [opts.actions]
@@ -62,6 +63,7 @@ export function createStyleCard(opts) {
     // 预设/API 等 cover:false：不生成封面 DOM
     const showCover = wantCover;
     const root = el('article', showCover ? 'nd-style-card' : 'nd-style-card nd-style-card--no-cover');
+    if (opts?.selectHighlightOnly === true) root.classList.add('nd-style-card--select-highlight');
     if (opts?.active) root.classList.add('is-active');
     if (opts?.selected) root.classList.add('is-selected');
 
@@ -235,7 +237,7 @@ export function createStyleCard(opts) {
 
     /** @type {HTMLInputElement|null} */
     let selectInput = null;
-    if (typeof opts?.onSelect === 'function') {
+    if (typeof opts?.onSelect === 'function' && opts?.selectHighlightOnly !== true) {
         const selectLabel = el('label', 'nd-style-card__select');
         selectInput = /** @type {HTMLInputElement} */ (document.createElement('input'));
         selectInput.type = 'checkbox';

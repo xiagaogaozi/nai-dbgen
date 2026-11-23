@@ -83,11 +83,63 @@ export function mountTagPanel(root, deps) {
         byLib: new Map(),
     });
 
+    /** @type {Set<string>} */
+    const expandedIds = new Set();
+    /** @type {Set<string>} */
+    const selectedLibIds = new Set();
+    /** @type {Set<string>} */
+    const selectedEntryIds = new Set();
+    let selectionMode = false;
+
+    const bulkCount = el('span', 'nd-artist-bulk__count');
+    setText(bulkCount, '已选 0');
+    const selectAllBtn = createButton({
+        label: '全选',
+        variant: 'ghost',
+        onClick: () => selectVisibleAll(),
+    });
+    const clearSelectBtn = createButton({
+        label: '取消选择',
+        variant: 'ghost',
+        onClick: () => clearSelection(),
+    });
+    const deleteSelectedBtn = createButton({
+        label: '删除所选',
+        variant: 'danger',
+        onClick: () => void removeSelected(),
+    });
+    deleteSelectedBtn.disabled = true;
+    for (const btn of [selectAllBtn, clearSelectBtn, deleteSelectedBtn]) {
+        btn.classList.add('nd-artist-bulk__btn');
+    }
+    const bulkBar = el('div', 'nd-bulk-bar');
+    bulkBar.hidden = true;
+    bulkBar.append(selectAllBtn, clearSelectBtn, deleteSelectedBtn, bulkCount);
+
+    const selectModeBtn = createButton({
+        label: '选择',
+        variant: 'ghost',
+        onClick: () => {
+            selectionMode = !selectionMode;
+            if (!selectionMode) {
+                selectedLibIds.clear();
+                selectedEntryIds.clear();
+            }
+            bulkBar.hidden = !selectionMode;
+            setText(selectModeBtn, selectionMode ? '完成' : '选择');
+            selectModeBtn.setAttribute('aria-pressed', selectionMode ? 'true' : 'false');
+            syncBulk();
+            nested?.refresh();
+        },
+    });
+    selectModeBtn.setAttribute('aria-pressed', 'false');
+
     const shell = el('div', 'nd-panel nd-panel--tag');
     const toolbar = createLibraryToolbar({
         searchPlaceholder: '搜索库或条目',
         onSearch: (q) => store.set((s) => ({ ...s, query: q })),
         onCreate: () => void openLibraryEditor(null),
+        leading: [selectModeBtn],
         onImport: () => void openImport('import'),
         onExport: () => void openImport('export'),
         extra: (() => {
@@ -105,7 +157,7 @@ export function mountTagPanel(root, deps) {
     });
     const listHost = el('div', 'nd-panel__list');
     const err = createInlineError();
-    shell.append(toolbar.el, err.el, listHost);
+    shell.append(toolbar.el, bulkBar, err.el, listHost);
     root.appendChild(shell);
 
     /** @type {{ destroy: () => void, refresh: () => void }|null} */
@@ -113,6 +165,97 @@ export function mountTagPanel(root, deps) {
     /** @type {(() => void)[]} */
     const cleanups = [];
     let destroyed = false;
+
+    function resolveSelectionTargets() {
+        const s = store.get();
+        const libById = new Map(s.libraries.map((lib) => [String(lib.id), lib]));
+        /** @type {object[]} */
+        const libs = [];
+        for (const id of selectedLibIds) {
+            const lib = libById.get(id);
+            if (lib) libs.push(lib);
+        }
+        /** @type {object[]} */
+        const entries = [];
+        for (const [libId, list] of s.byLib.entries()) {
+            if (selectedLibIds.has(libId)) continue;
+            for (const entry of list || []) {
+                if (selectedEntryIds.has(String(entry.id))) entries.push(entry);
+            }
+        }
+        return { libs, entries };
+    }
+
+    function syncBulk() {
+        const { libs, entries } = resolveSelectionTargets();
+        const parts = [];
+        if (libs.length) parts.push(`${libs.length} 个库`);
+        if (entries.length) parts.push(`${entries.length} 条`);
+        setText(bulkCount, parts.length ? `已选 ${parts.join('、')}` : '已选 0');
+        deleteSelectedBtn.disabled = libs.length === 0 && entries.length === 0;
+    }
+
+    function pruneSelection() {
+        const s = store.get();
+        const aliveLibs = new Set(s.libraries.map((l) => String(l.id)));
+        const aliveEntries = new Set();
+        for (const list of s.byLib.values()) {
+            for (const entry of list || []) aliveEntries.add(String(entry.id));
+        }
+        for (const id of [...selectedLibIds]) {
+            if (!aliveLibs.has(id)) selectedLibIds.delete(id);
+        }
+        for (const id of [...selectedEntryIds]) {
+            if (!aliveEntries.has(id)) selectedEntryIds.delete(id);
+        }
+        syncBulk();
+    }
+
+    function selectVisibleAll() {
+        if (!selectionMode) return;
+        const q = store.get().query.trim().toLowerCase();
+        const vis = visible();
+        for (const lib of vis.parents) {
+            const libId = String(lib.id);
+            const children = vis.childrenByParentId.get(libId) || [];
+            const nameHit = !q || String(lib.name ?? '').toLowerCase().includes(q);
+            if (nameHit) {
+                selectedLibIds.add(libId);
+                for (const entry of children) selectedEntryIds.delete(String(entry.id));
+            } else {
+                for (const entry of children) selectedEntryIds.add(String(entry.id));
+            }
+        }
+        syncBulk();
+        nested?.refresh();
+    }
+
+    function clearSelection() {
+        selectedLibIds.clear();
+        selectedEntryIds.clear();
+        syncBulk();
+        nested?.refresh();
+    }
+
+    async function removeSelected() {
+        const { libs, entries } = resolveSelectionTargets();
+        if (!libs.length && !entries.length) return;
+        const parts = [];
+        if (libs.length) parts.push(`${libs.length} 个标签库（及其全部条目）`);
+        if (entries.length) parts.push(`${entries.length} 条标签条目`);
+        const ok = await confirmDanger(deps, `将删除所选 ${parts.join('和')}。此操作不可撤销，确定继续？`);
+        if (!ok || destroyed) return;
+        for (const lib of libs) {
+            await awaitRepo(host, repo.removeLibrary(lib.id), '删除标签库失败');
+        }
+        for (const entry of entries) {
+            await awaitRepo(host, repo.remove(entry.id), '删除条目失败');
+        }
+        selectedLibIds.clear();
+        selectedEntryIds.clear();
+        syncBulk();
+        await refresh();
+    }
 
     function visible() {
         const s = store.get();
@@ -132,6 +275,30 @@ export function mountTagPanel(root, deps) {
             getParentLabel: (parent) => String(parent.name ?? parent.id),
             isParentEnabled: (p) => p.active !== false,
             onParentEnabledChange: (parent, enabled) => void toggleLibrary(parent, enabled),
+            isExpanded: (id) => expandedIds.has(id),
+            onExpandedChange: (id, open) => {
+                if (open) expandedIds.add(id);
+                else expandedIds.delete(id);
+            },
+            isSelectionMode: () => selectionMode,
+            isParentSelected: (parent) => selectedLibIds.has(String(parent.id)),
+            onParentSelectToggle: (parent, block) => {
+                const id = String(parent.id);
+                const next = !selectedLibIds.has(id);
+                if (next) selectedLibIds.add(id);
+                else selectedLibIds.delete(id);
+                block.classList.toggle('is-selected', next);
+                syncBulk();
+            },
+            isChildSelected: (child) => selectedEntryIds.has(String(child.id)),
+            onChildSelectToggle: (child, _parent, row) => {
+                const id = String(child.id);
+                const next = !selectedEntryIds.has(id);
+                if (next) selectedEntryIds.add(id);
+                else selectedEntryIds.delete(id);
+                row.classList.toggle('is-selected', next);
+                syncBulk();
+            },
             renderParentMeta: (parent, metaEl) => {
                 const badge = el('span', 'nd-muted');
                 setText(badge, kindLabel(parent.kind));
@@ -204,6 +371,7 @@ export function mountTagPanel(root, deps) {
             byLib.set(String(lib.id), entries);
         }
         store.set((s) => ({ ...s, libraries, byLib }));
+        pruneSelection();
         remountList();
     }
 

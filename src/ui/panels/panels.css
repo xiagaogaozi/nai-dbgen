@@ -964,6 +964,19 @@
     display: none;
 }
 
+/* API / 标签 / 角色库共用批量操作栏 */
+:is(#nai-dbgen-root, .nd-root) .nd-bulk-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-bulk-bar[hidden] {
+    display: none !important;
+}
+
 /* 存储管理：选择操作不改变图片卡片尺寸。 */
 :is(#nai-dbgen-root, .nd-root) .nd-cache-selection,
 :is(#nai-dbgen-root, .nd-root) .nd-cache-selection__bulk { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }

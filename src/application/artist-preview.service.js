@@ -83,7 +83,7 @@ export function createArtistPreviewService(deps) {
                 height: ARTIST_PREVIEW_SIZE.height,
             };
             const settings = typeof deps.loadSettings === 'function' ? deps.loadSettings() : null;
-            if (settings && settings.naiModelFollowsArtist !== false) {
+            if (settings?.naiModelFollowsArtist === true) {
                 params.model = boundModelForArtistTag(settings, resolveArtistModelTag(artist));
             }
 

@@ -117,6 +117,60 @@ export function mountApiConfigPanel(root, deps) {
         view?.destroy();
         view = null;
         const kind = segments.getValue() === 'nai' ? 'nai' : 'llm';
+
+        const bulkCount = el('span', 'nd-artist-bulk__count');
+        setText(bulkCount, '已选 0');
+        bulkCount.hidden = true;
+
+        const bulkBar = el('div', 'nd-bulk-bar');
+        bulkBar.hidden = true;
+
+        const selectAllBtn = createButton({
+            label: '全选',
+            variant: 'ghost',
+            onClick: () => view?.selectVisible(),
+        });
+        const clearSelectBtn = createButton({
+            label: '取消选择',
+            variant: 'ghost',
+            onClick: () => view?.clearSelection(),
+        });
+        const deleteSelectedBtn = createButton({
+            label: '删除所选',
+            variant: 'danger',
+            onClick: () => {
+                const picked = view?.getSelectedIds() || [];
+                if (!picked.length) return;
+                if (kind === 'llm') void removeLlm(picked);
+                else void removeNai(picked);
+            },
+        });
+        deleteSelectedBtn.disabled = true;
+        for (const btn of [selectAllBtn, clearSelectBtn, deleteSelectedBtn]) {
+            btn.classList.add('nd-artist-bulk__btn');
+        }
+        bulkBar.append(selectAllBtn, clearSelectBtn, deleteSelectedBtn);
+
+        const selectModeBtn = createButton({
+            label: '选择',
+            variant: 'ghost',
+            onClick: () => {
+                const next = !(view?.isSelectionMode() ?? false);
+                view?.setSelectionMode(next);
+                bulkBar.hidden = !next;
+                bulkCount.hidden = !next;
+                setText(selectModeBtn, next ? '完成' : '选择');
+                selectModeBtn.setAttribute('aria-pressed', next ? 'true' : 'false');
+            },
+        });
+        selectModeBtn.setAttribute('aria-pressed', 'false');
+
+        /** @param {string[]} picked */
+        const syncBulk = (picked) => {
+            setText(bulkCount, `已选 ${picked.length}`);
+            deleteSelectedBtn.disabled = picked.length === 0;
+        };
+
         if (kind === 'llm') {
             view = mountLibraryView(listHost, {
                 list: async () => {
@@ -146,6 +200,13 @@ export function mountApiConfigPanel(root, deps) {
             }, {
                 cover: false,
                 searchKeys: ['name', 'model', 'baseUrl'],
+                selectable: true,
+                selectionMode: false,
+                showCheckbox: false,
+                toolbarLeading: [selectModeBtn],
+                bulkBar,
+                statusExtra: bulkCount,
+                onSelectionChange: syncBulk,
                 cardMeta: (item) => ({
                     subtitle: String(item?.model || '').trim() || undefined,
                     chips: Array.isArray(item?.__chips) ? item.__chips : [],
@@ -181,6 +242,13 @@ export function mountApiConfigPanel(root, deps) {
             }, {
                 cover: false,
                 searchKeys: ['name', 'baseUrl'],
+                selectable: true,
+                selectionMode: false,
+                showCheckbox: false,
+                toolbarLeading: [selectModeBtn],
+                bulkBar,
+                statusExtra: bulkCount,
+                onSelectionChange: syncBulk,
                 cardMeta: (item) => {
                     const url = String(item?.baseUrl || '').trim();
                     const transport = item?.transport === 'st-cors-proxy' ? '酒馆 CORS 代理' : '直连';

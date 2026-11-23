@@ -72,10 +72,11 @@ export function mountStoragePanel(root, deps) {
     const cacheHint = el('p', 'nd-muted');
     setText(
         cacheHint,
-        '楼层出的图保存在本机浏览器。超过上限时从最旧的开始删，腾出空间；不影响服务器上的生图记录。',
+        '楼层与工作台生成的图保存在本机浏览器。超过上限时自动从最旧的开始删；点下方按钮可随时清空全部本机缓存，不影响服务器记录和画师串封面。',
     );
     const statsEl = el('p', 'nd-storage-stats');
     setText(statsEl, '当前：—');
+    let cachedCount = 0;
 
     const limitField = createNumberField({
         label: '缓存上限（张）',
@@ -124,12 +125,18 @@ export function mountStoragePanel(root, deps) {
         if (failed.length) toast(host, 'warning', `${failed.length} 张图片无法读取或下载`);
         if (sent) toast(host, 'info', `已请求下载 ${sent} 张；如浏览器询问，请允许下载多个文件，并检查下载列表`);
     }});
-    bulk.append(selectAll, selectNone, download, counter);
+    const deleteSelected = createButton({
+        label: '删除所选',
+        variant: 'danger',
+        onClick: () => void runDeleteSelected(),
+    });
+    deleteSelected.disabled = true;
+    bulk.append(selectAll, selectNone, download, deleteSelected, counter);
     selectionBar.append(selectButton, bulk);
     const trimBtn = createButton({
         label: '清理图片缓存',
         variant: 'danger',
-        onClick: () => void runImageTrim(),
+        onClick: () => void runImageClear(),
     });
     cacheBlock.append(
         cacheTitle,
@@ -166,6 +173,7 @@ export function mountStoragePanel(root, deps) {
                 return;
             }
             const { count, bytes } = r.value;
+            cachedCount = Number(count) || 0;
             setText(statsEl, `当前：${count} 张，约 ${formatBytes(bytes)}`);
             await paintGallery();
         } catch {
@@ -180,6 +188,7 @@ export function mountStoragePanel(root, deps) {
         counter.textContent = `已选 ${selectedIds.size}`;
         const waiting = galleryItems.some((row) => selectedIds.has(String(row.id)) && row.loading);
         download.disabled = selectedIds.size === 0 || waiting;
+        deleteSelected.disabled = selectedIds.size === 0;
         for (const row of galleryItems) {
             if (!row.card || !row.checkbox) continue;
             row.checkbox.hidden = !selecting;
@@ -228,7 +237,7 @@ export function mountStoragePanel(root, deps) {
             img.className = 'nd-cache-card__img';
             card.appendChild(img);
             const cap = el('span', 'nd-cache-card__cap');
-            const title = `${row.pinned ? '画师参考 · ' : ''}${formatBytes(row.size)}`;
+            const title = `${row.pinned ? '工作台历史 · ' : ''}${formatBytes(row.size)}`;
             setText(cap, title);
             card.appendChild(cap);
             const reuse = document.createElement('button');
@@ -337,35 +346,114 @@ export function mountStoragePanel(root, deps) {
         }
     }
 
-    async function runImageTrim() {
+    async function runDeleteSelected() {
         if (destroyed) {
             return;
         }
         cacheErr.clear();
         cacheResult.hidden = true;
-        if (!trimService || typeof trimService.trim !== 'function') {
+        const ids = [...selectedIds];
+        if (!ids.length) {
+            return;
+        }
+        const canRemove = typeof trimService?.removeRefs === 'function'
+            || typeof imageRepo?.removeMany === 'function'
+            || typeof imageRepo?.remove === 'function';
+        if (!canRemove) {
+            cacheErr.setMessage('删除图片缓存暂不可用，请刷新后重试');
+            return;
+        }
+        const confirmed = await confirmDanger(
+            deps,
+            `将删除所选 ${ids.length} 张本机缓存图片。此操作不可撤销，不影响服务器上的生图记录和画师串封面，确定继续？`,
+        );
+        if (!confirmed || destroyed) {
+            return;
+        }
+        deleteSelected.disabled = true;
+        trimBtn.disabled = true;
+        try {
+            let r;
+            if (typeof trimService?.removeRefs === 'function') {
+                r = await trimService.removeRefs(ids);
+            } else if (typeof imageRepo?.removeMany === 'function') {
+                r = await imageRepo.removeMany(ids);
+            } else {
+                let removed = 0;
+                for (const id of ids) {
+                    const one = await imageRepo.remove(id);
+                    if (!one?.ok) {
+                        r = one;
+                        break;
+                    }
+                    removed += 1;
+                }
+                if (!r) r = { ok: true, value: { removed } };
+            }
+            if (!r?.ok) {
+                const msg = r?.error?.message || '删除所选图片缓存失败';
+                cacheErr.setMessage(msg);
+                toast(host, 'error', msg);
+                return;
+            }
+            selectedIds.clear();
+            const removed = Number(r.value?.removed) || 0;
+            const text = removed > 0 ? `已删除 ${removed} 张缓存图片。` : '所选图片已不存在。';
+            setText(cacheResult, text);
+            cacheResult.hidden = false;
+            toast(host, removed > 0 ? 'success' : 'info', text);
+            await refreshStats();
+        } catch (cause) {
+            const msg = cause instanceof Error ? cause.message : '删除所选图片缓存失败';
+            cacheErr.setMessage(msg);
+            toast(host, 'error', msg);
+        } finally {
+            trimBtn.disabled = false;
+            syncSelection();
+        }
+    }
+
+    async function runImageClear() {
+        if (destroyed) {
+            return;
+        }
+        cacheErr.clear();
+        cacheResult.hidden = true;
+        const canClear = typeof trimService?.clearAll === 'function'
+            || typeof imageRepo?.clearCache === 'function';
+        if (!canClear) {
             cacheErr.setMessage('清理图片缓存暂不可用，请刷新后重试');
             return;
         }
         const limit = limitField.getValue();
-        if (!Number.isInteger(limit) || limit < 1) {
-            cacheErr.setMessage('上限必须是 ≥1 的整数');
+        if (Number.isInteger(limit) && limit >= 1) {
+            settings.patch({ imageCacheLimit: limit });
+        }
+        const countHint = cachedCount > 0 ? `（共 ${cachedCount} 张）` : '';
+        const confirmed = await confirmDanger(
+            deps,
+            `将清空本机全部缓存图片${countHint}。此操作不可撤销，不影响服务器上的生图记录和画师串封面，确定继续？`,
+        );
+        if (!confirmed || destroyed) {
             return;
         }
-        settings.patch({ imageCacheLimit: limit });
         trimBtn.disabled = true;
+        deleteSelected.disabled = true;
         try {
-            const r = await trimService.trim();
+            const r = typeof trimService?.clearAll === 'function'
+                ? await trimService.clearAll()
+                : await imageRepo.clearCache();
             if (!r?.ok) {
                 const msg = r?.error?.message || '清理图片缓存失败';
                 cacheErr.setMessage(msg);
                 toast(host, 'error', msg);
                 return;
             }
+            selectedIds.clear();
             const removed = Number(r.value?.removed) || 0;
             const text = removed > 0
-                ? `已清理 ${removed} 张超出上限的旧图。`
-                : '未超出上限，无需清理。';
+                ? `已清理 ${removed} 张缓存图片。`
+                : '当前没有可清理的图片缓存。';
             setText(cacheResult, text);
             cacheResult.hidden = false;
             toast(host, removed > 0 ? 'success' : 'info', text);
@@ -376,6 +464,7 @@ export function mountStoragePanel(root, deps) {
             toast(host, 'error', msg);
         } finally {
             trimBtn.disabled = false;
+            syncSelection();
         }
     }
 

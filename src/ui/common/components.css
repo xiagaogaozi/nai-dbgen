@@ -947,6 +947,13 @@
     box-shadow: none;
 }
 
+/* 无勾选框的高亮选择模式（API 库等）：选中整卡明显高亮 */
+:is(#nai-dbgen-root, .nd-root) .nd-style-card--select-highlight.is-selected {
+    border-color: var(--nd-accent);
+    background: var(--nd-accent-wash);
+    box-shadow: inset 0 0 0 1px var(--nd-accent);
+}
+
 :is(#nai-dbgen-root, .nd-root) .nd-style-card__select {
     position: absolute;
     top: 8px;
@@ -2166,6 +2173,23 @@ dialog.nd-popup.nd-root > .nd-native-dialog__close {
 
 :is(#nai-dbgen-root, .nd-root) .nd-nested-list__parent.is-disabled {
     opacity: 0.72;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-nested-list__parent.is-selected {
+    box-shadow: inset 0 0 0 1px var(--nd-accent);
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-nested-list__parent.is-selected > .nd-nested-list__header {
+    background: var(--nd-accent-wash);
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-nested-list__child.is-selectable {
+    cursor: pointer;
+}
+
+:is(#nai-dbgen-root, .nd-root) .nd-nested-list__child.is-selected {
+    background: var(--nd-accent-wash);
+    box-shadow: inset 3px 0 0 var(--nd-accent);
 }
 
 :is(#nai-dbgen-root, .nd-root) .nd-nested-list__header {

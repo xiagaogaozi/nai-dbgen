@@ -51,6 +51,8 @@ export function collectLiveRefsFromRecords(records) {
  *   listCacheRefs: (sessionId?: string|null) => Promise<import('../../infra/result.js').Ok<string[]>|import('../../infra/result.js').Err<import('../../infra/errors.js').AppError>>,
  *   collectLiveRefs: (records: Iterable<object>, sessionId?: string|null) => Promise<import('../../infra/result.js').Ok<string[]>|import('../../infra/result.js').Err<import('../../infra/errors.js').AppError>>,
  *   trimToLimit: (limit: number) => Promise<import('../../infra/result.js').Ok<{ removed: number, removedRefs: string[] }>|import('../../infra/result.js').Err<import('../../infra/errors.js').AppError>>,
+ *   removeMany: (refs: string[]) => Promise<import('../../infra/result.js').Ok<{ removed: number, removedRefs: string[] }>|import('../../infra/result.js').Err<import('../../infra/errors.js').AppError>>,
+ *   clearCache: () => Promise<import('../../infra/result.js').Ok<{ removed: number, removedRefs: string[] }>|import('../../infra/result.js').Err<import('../../infra/errors.js').AppError>>,
  * }}
  */
 export function createImageRepo(deps) {
@@ -375,8 +377,9 @@ export function createImageRepo(deps) {
         },
 
         /**
-         * 按张数上限裁剪：全部图按 createdAt 从老到新，删掉超出上限的最老部分。
+         * 按张数上限裁剪：全部缓存图按 createdAt 从老到新，删掉超出上限的最老部分。
          * 同步删 SLOT_IMAGE_CACHE 中指向被删图的行，并 revoke object URL。
+         * 画师串示例图在独立的 ARTIST_IMAGES 表，不受影响。
          * @param {number} limit 整数 ≥1
          * @returns {Promise<import('../../infra/result.js').Ok<{ removed: number, removedRefs: string[] }>|import('../../infra/result.js').Err<import('../../infra/errors.js').AppError>>}
          */
@@ -389,7 +392,7 @@ export function createImageRepo(deps) {
                 }));
             }
             return catchToResult(async () => {
-                const all = (await db.getAll(IDB_STORES.IMAGES)).filter((row) => row?.pinned !== true);
+                const all = await db.getAll(IDB_STORES.IMAGES);
                 if (all.length <= n) {
                     return { removed: 0, removedRefs: /** @type {string[]} */ ([]) };
                 }
@@ -418,6 +421,78 @@ export function createImageRepo(deps) {
                 for (const row of cacheRows) {
                     if (row?.imageRef && removedSet.has(String(row.imageRef))) {
                         await db.delete(IDB_STORES.SLOT_IMAGE_CACHE, [row.sessionId, row.slotId]);
+                    }
+                }
+                return { removed: removedRefs.length, removedRefs };
+            }, mapErr, Ok, Err);
+        },
+
+        /**
+         * 批量删除指定的本机缓存图（IMAGES 表），同步清理 SLOT_IMAGE_CACHE 并 revoke object URL。
+         * 不触碰 ARTIST_IMAGES（画师串封面）。
+         * @param {string[]} refs
+         * @returns {Promise<import('../../infra/result.js').Ok<{ removed: number, removedRefs: string[] }>|import('../../infra/result.js').Err<import('../../infra/errors.js').AppError>>}
+         */
+        async removeMany(refs) {
+            const want = new Set(
+                (Array.isArray(refs) ? refs : [])
+                    .filter((r) => r != null && r !== '')
+                    .map((r) => String(r)),
+            );
+            if (!want.size) {
+                return Ok({ removed: 0, removedRefs: /** @type {string[]} */ ([]) });
+            }
+            return catchToResult(async () => {
+                const all = await db.getAll(IDB_STORES.IMAGES);
+                /** @type {string[]} */
+                const removedRefs = [];
+                /** @type {Set<string>} */
+                const removedSet = new Set();
+                for (const row of all) {
+                    const id = String(row.id);
+                    if (!want.has(id)) continue;
+                    await db.delete(IDB_STORES.IMAGES, id);
+                    revokeCached(id);
+                    removedRefs.push(id);
+                    removedSet.add(id);
+                }
+                if (removedSet.size) {
+                    const cacheRows = await db.getAll(IDB_STORES.SLOT_IMAGE_CACHE);
+                    for (const row of cacheRows) {
+                        if (row?.imageRef && removedSet.has(String(row.imageRef))) {
+                            await db.delete(IDB_STORES.SLOT_IMAGE_CACHE, [row.sessionId, row.slotId]);
+                        }
+                    }
+                }
+                return { removed: removedRefs.length, removedRefs };
+            }, mapErr, Ok, Err);
+        },
+
+        /**
+         * 清空本机图片缓存（IMAGES 表全部图片），同步清理 SLOT_IMAGE_CACHE 并 revoke object URL。
+         * 不触碰 ARTIST_IMAGES（画师串封面）。
+         * @returns {Promise<import('../../infra/result.js').Ok<{ removed: number, removedRefs: string[] }>|import('../../infra/result.js').Err<import('../../infra/errors.js').AppError>>}
+         */
+        async clearCache() {
+            return catchToResult(async () => {
+                const all = await db.getAll(IDB_STORES.IMAGES);
+                /** @type {string[]} */
+                const removedRefs = [];
+                /** @type {Set<string>} */
+                const removedSet = new Set();
+                for (const row of all) {
+                    const id = String(row.id);
+                    await db.delete(IDB_STORES.IMAGES, id);
+                    revokeCached(id);
+                    removedRefs.push(id);
+                    removedSet.add(id);
+                }
+                if (removedSet.size) {
+                    const cacheRows = await db.getAll(IDB_STORES.SLOT_IMAGE_CACHE);
+                    for (const row of cacheRows) {
+                        if (row?.imageRef && removedSet.has(String(row.imageRef))) {
+                            await db.delete(IDB_STORES.SLOT_IMAGE_CACHE, [row.sessionId, row.slotId]);
+                        }
                     }
                 }
                 return { removed: removedRefs.length, removedRefs };

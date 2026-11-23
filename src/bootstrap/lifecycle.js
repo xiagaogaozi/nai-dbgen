@@ -35,7 +35,7 @@ import { reconcileParamsForModel } from '../domain/nai/param-options.js';
 const log = createLogger('bootstrap/lifecycle');
 
 /** @type {string} */
-export const PLUGIN_VERSION = '0.2.55';
+export const PLUGIN_VERSION = '0.2.56';
 
 /** @type {string} */
 export const PUBLIC_API_NAME = 'NaiDbGen';
@@ -1161,14 +1161,14 @@ export async function activate(opts = {}) {
                 const id = settings?.activeArtistId ?? null;
                 if (id === lastArtistId) return;
                 lastArtistId = id;
-                if (!id || settings?.naiModelFollowsArtist === false) return;
+                if (!id || settings?.naiModelFollowsArtist !== true) return;
                 const seq = ++followSeq;
                 void (async () => {
                     try {
                         const got = await container.repos.artist.get(id);
                         if (seq !== followSeq || !got?.ok || !got.value) return;
                         const cur = container.loadSettings();
-                        if (cur.activeArtistId !== id || cur.naiModelFollowsArtist === false) return;
+                        if (cur.activeArtistId !== id || cur.naiModelFollowsArtist !== true) return;
                         const next = followModelForArtistTag(cur, cur.naiParams?.model, resolveArtistModelTag(got.value));
                         if (!next) return;
                         const { params } = reconcileParamsForModel(cur.naiParams, next);

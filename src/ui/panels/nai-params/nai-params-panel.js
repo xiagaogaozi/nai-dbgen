@@ -34,11 +34,15 @@ export function mountNaiParamsPanel(root, deps) {
         onChange: (params) => settings.patch({ naiParams: params }),
     });
 
+    const followEnabled = current.naiModelFollowsArtist === true;
     const follow = createToggle({
         label: '模型跟随模型版本',
         hint: '切换画师串时，版本系列不同就换成下面绑定的模型；画师串库生成预览也用绑定模型',
-        checked: current.naiModelFollowsArtist !== false,
-        onChange: (v) => settings.patch({ naiModelFollowsArtist: v }),
+        checked: followEnabled,
+        onChange: (v) => {
+            settings.patch({ naiModelFollowsArtist: v });
+            syncBindingVisibility(v);
+        },
     });
 
     /**
@@ -63,6 +67,18 @@ export function mountNaiParamsPanel(root, deps) {
     };
     const bindV5 = makeBinding('v5', 'V5 模型');
     const bindV45 = makeBinding('v4.5', 'V4.5 模型');
+
+    /** @param {boolean} enabled */
+    function syncBindingVisibility(enabled) {
+        const show = Boolean(enabled);
+        bindV5.el.hidden = !show;
+        bindV45.el.hidden = !show;
+        if (!show) {
+            bindV5.close();
+            bindV45.close();
+        }
+    }
+    syncBindingVisibility(followEnabled);
 
     const shell = el('div', 'nd-panel nd-panel--nai-params');
     const followGroup = createFieldGroup({

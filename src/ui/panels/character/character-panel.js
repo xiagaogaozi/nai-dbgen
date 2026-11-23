@@ -51,11 +51,63 @@ export function mountCharacterPanel(root, deps) {
         byGroup: new Map(),
     });
 
+    /** @type {Set<string>} */
+    const expandedIds = new Set();
+    /** @type {Set<string>} */
+    const selectedGroupIds = new Set();
+    /** @type {Set<string>} */
+    const selectedCharIds = new Set();
+    let selectionMode = false;
+
+    const bulkCount = el('span', 'nd-artist-bulk__count');
+    setText(bulkCount, '已选 0');
+    const selectAllBtn = createButton({
+        label: '全选',
+        variant: 'ghost',
+        onClick: () => selectVisibleAll(),
+    });
+    const clearSelectBtn = createButton({
+        label: '取消选择',
+        variant: 'ghost',
+        onClick: () => clearSelection(),
+    });
+    const deleteSelectedBtn = createButton({
+        label: '删除所选',
+        variant: 'danger',
+        onClick: () => void removeSelected(),
+    });
+    deleteSelectedBtn.disabled = true;
+    for (const btn of [selectAllBtn, clearSelectBtn, deleteSelectedBtn]) {
+        btn.classList.add('nd-artist-bulk__btn');
+    }
+    const bulkBar = el('div', 'nd-bulk-bar');
+    bulkBar.hidden = true;
+    bulkBar.append(selectAllBtn, clearSelectBtn, deleteSelectedBtn, bulkCount);
+
+    const selectModeBtn = createButton({
+        label: '选择',
+        variant: 'ghost',
+        onClick: () => {
+            selectionMode = !selectionMode;
+            if (!selectionMode) {
+                selectedGroupIds.clear();
+                selectedCharIds.clear();
+            }
+            bulkBar.hidden = !selectionMode;
+            setText(selectModeBtn, selectionMode ? '完成' : '选择');
+            selectModeBtn.setAttribute('aria-pressed', selectionMode ? 'true' : 'false');
+            syncBulk();
+            nested?.refresh();
+        },
+    });
+    selectModeBtn.setAttribute('aria-pressed', 'false');
+
     const shell = el('div', 'nd-panel nd-panel--character');
     const toolbar = createLibraryToolbar({
         searchPlaceholder: '搜索组或角色',
         onSearch: (q) => store.set((s) => ({ ...s, query: q })),
         onCreate: () => void openGroupEditor(null),
+        leading: [selectModeBtn],
         onImport: () => void openImport('import'),
         onExport: () => void doExport(),
         extra: (() => {
@@ -74,7 +126,7 @@ export function mountCharacterPanel(root, deps) {
 
     const listHost = el('div', 'nd-panel__list');
     const err = createInlineError();
-    shell.append(toolbar.el, err.el, listHost);
+    shell.append(toolbar.el, bulkBar, err.el, listHost);
     root.appendChild(shell);
 
     /** @type {{ destroy: () => void, refresh: () => void }|null} */
@@ -82,6 +134,97 @@ export function mountCharacterPanel(root, deps) {
     /** @type {(() => void)[]} */
     const cleanups = [];
     let destroyed = false;
+
+    function resolveSelectionTargets() {
+        const s = store.get();
+        const groupById = new Map(s.groups.map((g) => [String(g.id), g]));
+        /** @type {object[]} */
+        const groups = [];
+        for (const id of selectedGroupIds) {
+            const group = groupById.get(id);
+            if (group) groups.push(group);
+        }
+        /** @type {object[]} */
+        const chars = [];
+        for (const [groupId, list] of s.byGroup.entries()) {
+            if (selectedGroupIds.has(groupId)) continue;
+            for (const ch of list || []) {
+                if (selectedCharIds.has(String(ch.id))) chars.push(ch);
+            }
+        }
+        return { groups, chars };
+    }
+
+    function syncBulk() {
+        const { groups, chars } = resolveSelectionTargets();
+        const parts = [];
+        if (groups.length) parts.push(`${groups.length} 个组`);
+        if (chars.length) parts.push(`${chars.length} 个角色`);
+        setText(bulkCount, parts.length ? `已选 ${parts.join('、')}` : '已选 0');
+        deleteSelectedBtn.disabled = groups.length === 0 && chars.length === 0;
+    }
+
+    function pruneSelection() {
+        const s = store.get();
+        const aliveGroups = new Set(s.groups.map((g) => String(g.id)));
+        const aliveChars = new Set();
+        for (const list of s.byGroup.values()) {
+            for (const ch of list || []) aliveChars.add(String(ch.id));
+        }
+        for (const id of [...selectedGroupIds]) {
+            if (!aliveGroups.has(id)) selectedGroupIds.delete(id);
+        }
+        for (const id of [...selectedCharIds]) {
+            if (!aliveChars.has(id)) selectedCharIds.delete(id);
+        }
+        syncBulk();
+    }
+
+    function selectVisibleAll() {
+        if (!selectionMode) return;
+        const q = store.get().query.trim().toLowerCase();
+        const vis = visible();
+        for (const group of vis.parents) {
+            const groupId = String(group.id);
+            const children = vis.childrenByParentId.get(groupId) || [];
+            const nameHit = !q || String(group.name ?? '').toLowerCase().includes(q);
+            if (nameHit) {
+                selectedGroupIds.add(groupId);
+                for (const ch of children) selectedCharIds.delete(String(ch.id));
+            } else {
+                for (const ch of children) selectedCharIds.add(String(ch.id));
+            }
+        }
+        syncBulk();
+        nested?.refresh();
+    }
+
+    function clearSelection() {
+        selectedGroupIds.clear();
+        selectedCharIds.clear();
+        syncBulk();
+        nested?.refresh();
+    }
+
+    async function removeSelected() {
+        const { groups, chars } = resolveSelectionTargets();
+        if (!groups.length && !chars.length) return;
+        const parts = [];
+        if (groups.length) parts.push(`${groups.length} 个角色组（及其全部角色）`);
+        if (chars.length) parts.push(`${chars.length} 个角色`);
+        const ok = await confirmDanger(deps, `将删除所选 ${parts.join('和')}。此操作不可撤销，确定继续？`);
+        if (!ok || destroyed) return;
+        for (const group of groups) {
+            await awaitRepo(host, repo.removeGroup(group.id), '删除组失败');
+        }
+        for (const ch of chars) {
+            await awaitRepo(host, repo.remove(ch.id), '删除角色失败');
+        }
+        selectedGroupIds.clear();
+        selectedCharIds.clear();
+        syncBulk();
+        await refresh();
+    }
 
     function visible() {
         const s = store.get();
@@ -100,6 +243,30 @@ export function mountCharacterPanel(root, deps) {
             getChildren: (parent) => visible().childrenByParentId.get(String(parent.id)) || [],
             isParentEnabled: (p) => p.active !== false,
             onParentEnabledChange: (parent, enabled) => void toggleGroup(parent, enabled),
+            isExpanded: (id) => expandedIds.has(id),
+            onExpandedChange: (id, open) => {
+                if (open) expandedIds.add(id);
+                else expandedIds.delete(id);
+            },
+            isSelectionMode: () => selectionMode,
+            isParentSelected: (parent) => selectedGroupIds.has(String(parent.id)),
+            onParentSelectToggle: (parent, block) => {
+                const id = String(parent.id);
+                const next = !selectedGroupIds.has(id);
+                if (next) selectedGroupIds.add(id);
+                else selectedGroupIds.delete(id);
+                block.classList.toggle('is-selected', next);
+                syncBulk();
+            },
+            isChildSelected: (child) => selectedCharIds.has(String(child.id)),
+            onChildSelectToggle: (child, _parent, row) => {
+                const id = String(child.id);
+                const next = !selectedCharIds.has(id);
+                if (next) selectedCharIds.add(id);
+                else selectedCharIds.delete(id);
+                row.classList.toggle('is-selected', next);
+                syncBulk();
+            },
             renderParentMeta: (parent, metaEl) => {
                 const add = createMiniAction({
                     label: '＋角色',
@@ -152,6 +319,7 @@ export function mountCharacterPanel(root, deps) {
             byGroup.set(String(g.id), chars);
         }
         store.set((s) => ({ ...s, groups, byGroup }));
+        pruneSelection();
         remountList();
     }
 
