@@ -81,24 +81,29 @@ export function mountPresetPanel(root, deps) {
     const bulkBar = el('div', 'nd-bulk-bar');
     bulkBar.hidden = true;
 
-    const selectAllBtn = createButton({
+    function isAllVisibleSelected() {
+        const visIds = view?.getVisibleIds?.() || [];
+        if (!visIds.length) return false;
+        const picked = new Set(view?.getSelectedIds() || []);
+        return visIds.every((id) => picked.has(id));
+    }
+
+    const selectAllToggleBtn = createButton({
         label: '全选',
         variant: 'ghost',
-        onClick: () => view.selectVisible(),
-    });
-    const clearSelectBtn = createButton({
-        label: '取消选择',
-        variant: 'ghost',
-        onClick: () => view.clearSelection(),
+        onClick: () => {
+            if (isAllVisibleSelected()) view.clearSelection();
+            else view.selectVisible();
+        },
     });
     const exportSelectedBtn = createButton({
-        label: '导出所选',
+        label: '导出',
         variant: 'ghost',
         onClick: () => void exportSelected(),
     });
     exportSelectedBtn.disabled = true;
     const deleteSelectedBtn = createButton({
-        label: '删除所选',
+        label: '删除',
         variant: 'danger',
         onClick: () => {
             const picked = view.getSelectedIds();
@@ -106,10 +111,10 @@ export function mountPresetPanel(root, deps) {
         },
     });
     deleteSelectedBtn.disabled = true;
-    for (const btn of [selectAllBtn, clearSelectBtn, exportSelectedBtn, deleteSelectedBtn]) {
+    for (const btn of [selectAllToggleBtn, exportSelectedBtn, deleteSelectedBtn]) {
         btn.classList.add('nd-artist-bulk__btn');
     }
-    bulkBar.append(selectAllBtn, clearSelectBtn, exportSelectedBtn, deleteSelectedBtn);
+    bulkBar.append(selectAllToggleBtn, exportSelectedBtn, deleteSelectedBtn);
 
     function setSelectionModeUi(next) {
         view.setSelectionMode(next);
@@ -117,6 +122,7 @@ export function mountPresetPanel(root, deps) {
         bulkCount.hidden = !next;
         setText(selectModeBtn, next ? '完成' : '选择');
         selectModeBtn.setAttribute('aria-pressed', next ? 'true' : 'false');
+        setText(selectAllToggleBtn, isAllVisibleSelected() ? '取消全选' : '全选');
     }
 
     const selectModeBtn = createButton({
@@ -181,6 +187,7 @@ export function mountPresetPanel(root, deps) {
             const empty = picked.length === 0;
             exportSelectedBtn.disabled = empty;
             deleteSelectedBtn.disabled = empty;
+            setText(selectAllToggleBtn, isAllVisibleSelected() ? '取消全选' : '全选');
         },
         cardMeta: (item) => ({
             subtitle: `${KIND_LABEL[item.kind] || item.kind || '—'} · ${

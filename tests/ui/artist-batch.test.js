@@ -97,13 +97,16 @@ describe('artist library batch version switch and delete', () => {
 
         const boxes = checkboxes(root);
         assert.equal(boxes.length, 1);
-        assert.equal(buttonByText(root, '改为 v4.5').disabled, true);
-        assert.equal(buttonByText(root, '删除所选').disabled, true);
+        assert.equal(buttonByText(root, '改为 v4.5').hidden, true);
+        assert.equal(buttonByText(root, '改为 v5').hidden, true);
+        assert.equal(buttonByText(root, '删除').disabled, true);
 
         boxes[0].checked = true;
         fire(boxes[0], 'change');
         assert.equal(root.querySelector('.nd-artist-bulk__count').textContent, '已选 1');
+        assert.equal(buttonByText(root, '改为 v4.5').hidden, false);
         assert.equal(buttonByText(root, '改为 v4.5').disabled, false);
+        assert.equal(buttonByText(root, '改为 v5').hidden, true);
 
         fire(buttonByText(root, '改为 v4.5'), 'click');
         fire(buttonByText(document.body, '确认切换'), 'click');
@@ -148,12 +151,13 @@ describe('artist library batch version switch and delete', () => {
 
         fire(buttonByText(root, '全选'), 'click');
         assert.equal(root.querySelector('.nd-artist-bulk__count').textContent, '已选 2');
-        fire(buttonByText(root, '删除所选'), 'click');
+        assert.ok(buttonByText(root, '取消全选'));
+        fire(buttonByText(root, '删除'), 'click');
         fire(buttonByText(document.body, '确认删除'), 'click');
         await flush();
 
         assert.deepEqual(removed, ['a', 'b']);
-        assert.equal(buttonByText(root, '删除所选').disabled, true);
+        assert.equal(buttonByText(root, '删除').disabled, true);
         panel.destroy();
     });
 });

@@ -35,7 +35,7 @@ import { reconcileParamsForModel } from '../domain/nai/param-options.js';
 const log = createLogger('bootstrap/lifecycle');
 
 /** @type {string} */
-export const PLUGIN_VERSION = '0.2.57';
+export const PLUGIN_VERSION = '0.2.58';
 
 /** @type {string} */
 export const PUBLIC_API_NAME = 'NaiDbGen';

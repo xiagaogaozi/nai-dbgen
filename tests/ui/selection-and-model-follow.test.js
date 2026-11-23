@@ -190,14 +190,16 @@ describe('highlight-only multi-select and bulk delete for API, Tag, Character li
         assert.equal(cards.length, 2);
         fire(cards[0], 'click');
         assert.equal(cards[0].classList.contains('is-selected'), true);
-        assert.equal(buttonByText(root, '删除所选').disabled, false);
-
-        fire(buttonByText(root, '取消选择'), 'click');
-        assert.equal(buttonByText(root, '删除所选').disabled, true);
+        assert.equal(buttonByText(root, '删除').disabled, false);
 
         fire(buttonByText(root, '全选'), 'click');
-        assert.equal(buttonByText(root, '删除所选').disabled, false);
-        fire(buttonByText(root, '删除所选'), 'click');
+        assert.ok(buttonByText(root, '取消全选'));
+        fire(buttonByText(root, '取消全选'), 'click');
+        assert.equal(buttonByText(root, '删除').disabled, true);
+
+        fire(buttonByText(root, '全选'), 'click');
+        assert.equal(buttonByText(root, '删除').disabled, false);
+        fire(buttonByText(root, '删除'), 'click');
         await flush();
         fire(buttonByText(document.body, '确认删除'), 'click');
         await flush();
@@ -254,9 +256,9 @@ describe('highlight-only multi-select and bulk delete for API, Tag, Character li
         assert.equal(childRows.length, 2);
         fire(childRows[0], 'click');
         assert.equal(childRows[0].classList.contains('is-selected'), true);
-        assert.equal(buttonByText(root, '删除所选').disabled, false);
+        assert.equal(buttonByText(root, '删除').disabled, false);
 
-        fire(buttonByText(root, '删除所选'), 'click');
+        fire(buttonByText(root, '删除'), 'click');
         await flush();
         fire(buttonByText(document.body, '确认删除'), 'click');
         await flush();
@@ -265,7 +267,7 @@ describe('highlight-only multi-select and bulk delete for API, Tag, Character li
 
         // 全选删除全部可见库
         fire(buttonByText(root, '全选'), 'click');
-        fire(buttonByText(root, '删除所选'), 'click');
+        fire(buttonByText(root, '删除'), 'click');
         await flush();
         fire(buttonByText(document.body, '确认删除'), 'click');
         await flush();
@@ -322,9 +324,11 @@ describe('highlight-only multi-select and bulk delete for API, Tag, Character li
         fire(childRows[1], 'click');
         assert.equal(childRows[1].classList.contains('is-selected'), true);
 
-        // 取消选择后按钮禁用
-        fire(buttonByText(root, '取消选择'), 'click');
-        assert.equal(buttonByText(root, '删除所选').disabled, true);
+        // 全选后再点取消全选，按钮禁用
+        fire(buttonByText(root, '全选'), 'click');
+        assert.ok(buttonByText(root, '取消全选'));
+        fire(buttonByText(root, '取消全选'), 'click');
+        assert.equal(buttonByText(root, '删除').disabled, true);
 
         // 选第二个组（点 header 高亮）
         const headers = findAll(root, (n) => hasClass(n, 'nd-nested-list__header'));
@@ -332,7 +336,7 @@ describe('highlight-only multi-select and bulk delete for API, Tag, Character li
         fire(headers[1], 'click');
         assert.equal(parents[1].classList.contains('is-selected'), true);
 
-        fire(buttonByText(root, '删除所选'), 'click');
+        fire(buttonByText(root, '删除'), 'click');
         await flush();
         fire(buttonByText(document.body, '确认删除'), 'click');
         await flush();

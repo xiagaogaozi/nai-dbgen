@@ -140,7 +140,7 @@ describe('storage-panel image cache', () => {
         const cards = findAllByClass(root, 'nd-cache-card');
         assert.equal(cards.length, 2);
         click(cards[0]);
-        const delSelBtn = findButtons(root).find((b) => String(b.textContent || '') === '删除所选');
+        const delSelBtn = findButtons(root).find((b) => String(b.textContent || '') === '删除');
         assert.ok(delSelBtn);
         assert.equal(delSelBtn.disabled, false);
         click(delSelBtn);

@@ -112,8 +112,22 @@ export function mountStoragePanel(root, deps) {
         syncSelection();
     }
     const selectButton = createButton({ label: '选择', variant: 'ghost', onClick: () => setSelecting(!selecting) });
-    const selectAll = createButton({ label: '全选', variant: 'ghost', onClick: () => { for (const row of galleryItems) selectedIds.add(String(row.id)); syncSelection(); } });
-    const selectNone = createButton({ label: '取消选择', variant: 'ghost', onClick: () => { selectedIds.clear(); syncSelection(); } });
+    function isAllCacheSelected() {
+        return galleryItems.length > 0
+            && galleryItems.every((row) => selectedIds.has(String(row.id)));
+    }
+    const selectAllToggle = createButton({
+        label: '全选',
+        variant: 'ghost',
+        onClick: () => {
+            if (isAllCacheSelected()) {
+                selectedIds.clear();
+            } else {
+                for (const row of galleryItems) selectedIds.add(String(row.id));
+            }
+            syncSelection();
+        },
+    });
     const download = createButton({ label: '下载所选', variant: 'primary', onClick: () => {
         let sent = 0; const failed = [];
         for (const row of galleryItems) {
@@ -127,12 +141,12 @@ export function mountStoragePanel(root, deps) {
         if (sent) toast(host, 'info', `已请求下载 ${sent} 张；如浏览器询问，请允许下载多个文件，并检查下载列表`);
     }});
     const deleteSelected = createButton({
-        label: '删除所选',
+        label: '删除',
         variant: 'danger',
         onClick: () => void runDeleteSelected(),
     });
     deleteSelected.disabled = true;
-    bulk.append(selectAll, selectNone, download, deleteSelected, counter);
+    bulk.append(selectAllToggle, download, deleteSelected, counter);
     selectionBar.append(selectButton, bulk);
     const trimBtn = createButton({
         label: '清理图片缓存',
@@ -192,6 +206,7 @@ export function mountStoragePanel(root, deps) {
     function syncSelection() {
         bulk.hidden = !selecting;
         counter.textContent = `已选 ${selectedIds.size}`;
+        setText(selectAllToggle, isAllCacheSelected() ? '取消全选' : '全选');
         const waiting = galleryItems.some((row) => selectedIds.has(String(row.id)) && row.loading);
         download.disabled = selectedIds.size === 0 || waiting;
         deleteSelected.disabled = selectedIds.size === 0;

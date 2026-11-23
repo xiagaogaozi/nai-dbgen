@@ -531,53 +531,69 @@ export function labeledTextarea(label, value = '', rows = 4) {
     };
 }
 
-/** 点击这些区域时保持选择模式（不算空白）。 */
+/** 点击这些区域时保持选择模式（仅排除条目与交互控件，不挡工具栏/批量栏的空白留白）。 */
 const SELECTION_KEEP_SELECTOR = [
     '.nd-style-card',
     '.nd-cache-card',
     '.nd-nested-list__parent',
     '.nd-nested-list__child',
-    '.nd-library-toolbar',
-    '.nd-bulk-bar',
-    '.nd-artist-filter-row',
-    '.nd-cache-selection',
+    '.nd-shell__tabs',
     '.nd-segment',
-    'dialog',
-    '.nd-popup',
-    '.nd-modal',
+    '.nd-model-tag-filter',
+    '.nd-token-select__menu',
+    '.nd-combobox__list',
     'button',
     'input',
     'label',
     'select',
     'textarea',
     'a',
+    '[role="button"]',
+    '[role="option"]',
+    '[role="listbox"]',
 ].join(', ');
 
 /**
- * 选择模式下点击容器空白处自动退出选择并清空已选。
+ * 选择模式下点击空白处自动退出选择并清空已选。
+ * 挂在 document 上以覆盖管理台弹窗内外的全部空白区，并区分“管理台自身 dialog”与“上层子弹窗（如确认框）”。
  * @param {Element} container
  * @param {{ isActive: () => boolean, onExit: () => void }} opts
  * @returns {() => void}
  */
 export function bindSelectionOutsideExit(container, opts) {
-    if (!container || typeof container.addEventListener !== 'function') {
+    const listenTarget = typeof document !== 'undefined' && typeof document.addEventListener === 'function'
+        ? document
+        : container;
+    if (!listenTarget || typeof listenTarget.addEventListener !== 'function') {
         return () => {};
     }
     /** @param {Event} event */
     const onClick = (event) => {
         if (!opts?.isActive?.()) return;
+        if (container && 'isConnected' in container && container.isConnected === false) return;
+        if (typeof container?.closest === 'function' && container.closest('[hidden]')) return;
         const target = /** @type {any} */ (event?.target);
         if (!target) return;
         // 若点击已触发重绘移除了原节点，避免误判为空白退出
         if ('isConnected' in target && target.isConnected === false) return;
+        // 点在叠于管理台之上的子确认弹窗/模态框内，保持选择模式
+        const ownDialog = typeof container?.closest === 'function' ? container.closest('dialog') : null;
+        const hitDialog = typeof target.closest === 'function' ? target.closest('dialog') : null;
+        if (hitDialog && hitDialog !== ownDialog) return;
+        if (!ownDialog && typeof target.closest === 'function' && target.closest('.nd-popup, .nd-modal')) {
+            const ownPopup = typeof container?.closest === 'function'
+                ? container.closest('.nd-popup, .nd-modal')
+                : null;
+            if (target.closest('.nd-popup, .nd-modal') !== ownPopup) return;
+        }
         if (typeof target.closest === 'function' && target.closest(SELECTION_KEEP_SELECTOR)) {
             return;
         }
         opts?.onExit?.();
     };
-    container.addEventListener('click', onClick);
+    listenTarget.addEventListener('click', onClick);
     return () => {
-        container.removeEventListener('click', onClick);
+        listenTarget.removeEventListener('click', onClick);
     };
 }
 

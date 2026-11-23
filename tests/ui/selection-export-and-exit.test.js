@@ -19,7 +19,8 @@ import { mountPresetPanel } from '../../src/ui/panels/preset/preset-panel.js';
 const flush = () => new Promise((r) => setTimeout(r, 15));
 
 function fire(node, type, extra = {}) {
-    for (const l of (node._listeners || []).filter((x) => x.type === type)) {
+    const list = node._listeners || node._docListeners || [];
+    for (const l of list.filter((x) => x.type === type)) {
         l.fn({ target: node, preventDefault() {}, stopPropagation() {}, ...extra });
     }
 }
@@ -86,13 +87,13 @@ describe('export filenames, selection-based export, outside click exit, and chun
 
     it('buildExportFilename follows nai-dbgen-<模块>[-版本]-<时间戳>.json', () => {
         assert.equal(buildExportFilename('画师串', 'V5', 1795456982550), 'nai-dbgen-画师串-V5-1795456982550.json');
-        assert.equal(buildExportFilename('画师串', 'V4', 1795456982550), 'nai-dbgen-画师串-V4-1795456982550.json');
-        assert.equal(buildExportFilename('画师串', 'V4V5', 1795456982550), 'nai-dbgen-画师串-V4V5-1795456982550.json');
+        assert.equal(buildExportFilename('画师串', 'V4.5', 1795456982550), 'nai-dbgen-画师串-V4.5-1795456982550.json');
+        assert.equal(buildExportFilename('画师串', '', 1795456982550), 'nai-dbgen-画师串-1795456982550.json');
         assert.equal(buildExportFilename('标签库', '', 123), 'nai-dbgen-标签库-123.json');
         assert.equal(buildExportFilename('角色库', '', 123), 'nai-dbgen-角色库-123.json');
     });
 
-    it('Artist panel exports selected items with V5 / V4 / V4V5 filename and mixed hint, and exits selection on blank click', async () => {
+    it('Artist panel exports V5 / V4.5 / mixed without version, toggles version switch buttons, and exits on blank click inside dialog.nd-popup', async () => {
         const items = [
             createArtist({ name: '画师5', sequence: 0, positivePrompt: 'p5', negativePrompt: '', modelTag: 'v5' }, { id: 'a5', now: '2026-01-01T00:00:00.000Z' }),
             createArtist({ name: '画师4', sequence: 1, positivePrompt: 'p4', negativePrompt: '', modelTag: 'v4.5' }, { id: 'a4', now: '2026-01-01T00:00:00.000Z' }),
@@ -101,9 +102,12 @@ describe('export filenames, selection-based export, outside click exit, and chun
         const exportedIdBatches = [];
         /** @type {string[]} */
         const toasts = [];
+        // 真实管理台嵌套在 dialog.nd-popup 中
+        const hostDialog = document.createElement('dialog');
+        hostDialog.className = 'nd-root nd-popup';
         const root = document.createElement('div');
-        root.className = 'nd-root';
-        document.body.appendChild(root);
+        hostDialog.appendChild(root);
+        document.body.appendChild(hostDialog);
 
         const panel = mountArtistPanel(root, {
             repos: {
@@ -122,42 +126,64 @@ describe('export filenames, selection-based export, outside click exit, and chun
         });
 
         await flush();
-        // 工具栏不再有独立「导出」按钮
-        assert.equal(buttonByText(root, '导出'), undefined);
+        // 未进入选择模式时「导出」按钮处于隐藏的批量栏
+        assert.equal(buttonByText(root, '导出').hidden, true);
 
-        // 进入选择模式：选 V5 导出
+        // 进入选择模式：未选时「改为 v4.5」「改为 v5」均隐藏
         fire(buttonByText(root, '选择'), 'click');
+        assert.equal(buttonByText(root, '改为 v4.5').hidden, true);
+        assert.equal(buttonByText(root, '改为 v5').hidden, true);
+
+        // 只选 V5：只显示「改为 v4.5」，隐藏「改为 v5」；导出文件名含 V5
         const boxes = findAll(root, (n) => String(n.tagName || '').toLowerCase() === 'input' && n.type === 'checkbox');
         assert.equal(boxes.length, 2);
         boxes[0].checked = true;
         fire(boxes[0], 'change');
-        fire(buttonByText(root, '导出所选'), 'click');
+        assert.equal(buttonByText(root, '改为 v4.5').hidden, false);
+        assert.equal(buttonByText(root, '改为 v5').hidden, true);
+        fire(buttonByText(root, '导出'), 'click');
         await flush();
         assert.deepEqual(exportedIdBatches[0], ['a5']);
         assert.match(downloadedNames[0], /^nai-dbgen-画师串-V5-\d+\.json$/);
 
-        // 取消后只选 V4.5 导出
-        fire(buttonByText(root, '取消选择'), 'click');
+        // 全选后再取消全选，再只选 V4.5：只显示「改为 v5」，隐藏「改为 v4.5」；导出文件名含 V4.5
+        fire(buttonByText(root, '全选'), 'click');
+        assert.equal(buttonByText(root, '改为 v4.5').hidden, false);
+        assert.equal(buttonByText(root, '改为 v5').hidden, false);
+        assert.ok(buttonByText(root, '取消全选'));
+        fire(buttonByText(root, '取消全选'), 'click');
+        assert.ok(buttonByText(root, '全选'));
+
         const boxes2 = findAll(root, (n) => String(n.tagName || '').toLowerCase() === 'input' && n.type === 'checkbox');
         boxes2[1].checked = true;
         fire(boxes2[1], 'change');
-        fire(buttonByText(root, '导出所选'), 'click');
+        assert.equal(buttonByText(root, '改为 v4.5').hidden, true);
+        assert.equal(buttonByText(root, '改为 v5').hidden, false);
+        fire(buttonByText(root, '导出'), 'click');
         await flush();
         assert.deepEqual(exportedIdBatches[1], ['a4']);
-        assert.match(downloadedNames[1], /^nai-dbgen-画师串-V4-\d+\.json$/);
+        assert.match(downloadedNames[1], /^nai-dbgen-画师串-V4\.5-\d+\.json$/);
 
-        // 全选混合 V4.5 + V5 导出：文件名含 V4V5 并弹出提示
+        // 全选混合 V4.5 + V5 导出：文件名不带版本号，并弹出混合提示
         fire(buttonByText(root, '全选'), 'click');
-        fire(buttonByText(root, '导出所选'), 'click');
+        fire(buttonByText(root, '导出'), 'click');
         await flush();
-        assert.match(downloadedNames[2], /^nai-dbgen-画师串-V4V5-\d+\.json$/);
+        assert.match(downloadedNames[2], /^nai-dbgen-画师串-\d+\.json$/);
         assert.ok(toasts.some((m) => m.includes('混合导出')));
 
-        // 点击面板空白处自动退出选择并清空
-        const shell = findAll(root, (n) => hasClass(n, 'nd-panel--artist'))[0];
+        // 点上层子确认 dialog 内：保持选择模式不退出
+        const childDialog = document.createElement('dialog');
+        const childBlank = document.createElement('div');
+        childDialog.appendChild(childBlank);
+        document.body.appendChild(childDialog);
+        fire(document, 'click', { target: childBlank });
+        assert.ok(buttonByText(root, '完成'));
+        childDialog.remove();
+
+        // 点管理台自身 dialog 内的空白区：自动退出选择模式
         const statusEl = findAll(root, (n) => hasClass(n, 'nd-library-view__status'))[0];
-        fire(shell, 'click', { target: statusEl });
-        assert.equal(buttonByText(root, '选择') != null, true);
+        fire(document, 'click', { target: statusEl });
+        assert.ok(buttonByText(root, '选择'));
         assert.equal(buttonByText(root, '完成'), undefined);
 
         panel.destroy();
@@ -178,15 +204,15 @@ describe('export filenames, selection-based export, outside click exit, and chun
             },
         });
         await flush();
-        assert.equal(buttonByText(tagRoot, '导出'), undefined);
+        assert.equal(buttonByText(tagRoot, '导出').hidden, false); // 按钮在隐藏的 bulkBar 内
         fire(buttonByText(tagRoot, '选择'), 'click');
         fire(buttonByText(tagRoot, '全选'), 'click');
-        fire(buttonByText(tagRoot, '导出所选'), 'click');
+        assert.ok(buttonByText(tagRoot, '取消全选'));
+        fire(buttonByText(tagRoot, '导出'), 'click');
         assert.match(downloadedNames.at(-1) || '', /^nai-dbgen-标签库-\d+\.json$/);
 
-        const tagShell = findAll(tagRoot, (n) => hasClass(n, 'nd-panel--tag'))[0];
         const listHost = findAll(tagRoot, (n) => hasClass(n, 'nd-panel__list'))[0];
-        fire(tagShell, 'click', { target: listHost });
+        fire(document, 'click', { target: listHost });
         assert.equal(buttonByText(tagRoot, '选择') != null, true);
         tagPanel.destroy();
 
@@ -208,18 +234,17 @@ describe('export filenames, selection-based export, outside click exit, and chun
             },
         });
         await flush();
-        assert.equal(buttonByText(presetRoot, '导出'), undefined);
         fire(buttonByText(presetRoot, '选择'), 'click');
         // 无勾选方框
         assert.equal(findAll(presetRoot, (n) => hasClass(n, 'nd-style-card__select')).length, 0);
         fire(buttonByText(presetRoot, '全选'), 'click');
-        fire(buttonByText(presetRoot, '导出所选'), 'click');
+        assert.ok(buttonByText(presetRoot, '取消全选'));
+        fire(buttonByText(presetRoot, '导出'), 'click');
         await flush();
         assert.match(downloadedNames.at(-1) || '', /^nai-dbgen-生图预设-\d+\.json$/);
 
-        const presetShell = findAll(presetRoot, (n) => hasClass(n, 'nd-panel--preset'))[0];
         const presetStatus = findAll(presetRoot, (n) => hasClass(n, 'nd-library-view__status'))[0];
-        fire(presetShell, 'click', { target: presetStatus });
+        fire(document, 'click', { target: presetStatus });
         assert.equal(buttonByText(presetRoot, '选择') != null, true);
         presetPanel.destroy();
     });

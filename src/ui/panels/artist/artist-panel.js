@@ -97,8 +97,15 @@ export function mountArtistPanel(root, deps) {
         return gated;
     }
 
+    /** @type {Map<string, string>} id → modelTag（用于同步决定「改为 v4.5 / 改为 v5」显隐） */
+    const modelTagById = new Map();
+
     async function listWithActive() {
         const loaded = await awaitRepo(host, repo.list(), '读取画师串失败') || [];
+        modelTagById.clear();
+        for (const row of loaded) {
+            if (row?.id != null) modelTagById.set(String(row.id), resolveArtistModelTag(row));
+        }
         const items = modelFilter
             ? loaded.filter((item) => artistHasModelTag(item, modelFilter))
             : loaded;
@@ -131,20 +138,26 @@ export function mountArtistPanel(root, deps) {
 
     const bulkCount = el('span', 'nd-artist-bulk__count');
     setText(bulkCount, '已选 0');
-    const selectAllBtn = createButton({
+
+    function isAllVisibleSelected() {
+        const visIds = view?.getVisibleIds?.() || [];
+        if (!visIds.length) return false;
+        const picked = new Set(view?.getSelectedIds() || []);
+        return visIds.every((id) => picked.has(id));
+    }
+
+    const selectAllToggleBtn = createButton({
         label: '全选',
         variant: 'ghost',
-        onClick: () => view?.selectVisible(),
+        onClick: () => {
+            if (isAllVisibleSelected()) view?.clearSelection();
+            else view?.selectVisible();
+        },
     });
-    const clearSelectBtn = createButton({
-        label: '取消选择',
-        variant: 'ghost',
-        onClick: () => view?.clearSelection(),
-    });
-    /** @type {AbortController|null} 导出所选进行中 */
+    /** @type {AbortController|null} 导出进行中 */
     let exportAbort = null;
     const exportSelectedBtn = createButton({
-        label: '导出所选',
+        label: '导出',
         variant: 'ghost',
         onClick: () => {
             if (exportAbort) {
@@ -156,20 +169,22 @@ export function mountArtistPanel(root, deps) {
     });
     exportSelectedBtn.disabled = true;
     const deleteSelectedBtn = createButton({
-        label: '删除所选',
+        label: '删除',
         variant: 'danger',
         onClick: () => void removeItems(view?.getSelectedIds() || []),
     });
     deleteSelectedBtn.disabled = true;
-    const switchTagBtns = ARTIST_MODEL_TAGS.map((tag) => {
+    const switchTagEntries = ARTIST_MODEL_TAGS.map((tag) => {
         const btn = createButton({
             label: `改为 ${tag}`,
             variant: 'ghost',
             onClick: () => void switchSelectedTag(tag),
         });
         btn.disabled = true;
-        return btn;
+        btn.hidden = true;
+        return { tag, btn };
     });
+    const switchTagBtns = switchTagEntries.map((entry) => entry.btn);
     const batchPreviewBtn = createButton({
         label: '生成预览图',
         variant: 'primary',
@@ -183,16 +198,44 @@ export function mountArtistPanel(root, deps) {
     });
     batchPreviewBtn.disabled = true;
     // 0.2.47：批量按钮并入版本筛选行（与 全部/v4.5/v5 同行同尺寸），“已选 N”放到“共 N 条”旁边
-    const bulkBtns = [selectAllBtn, clearSelectBtn, exportSelectedBtn, deleteSelectedBtn, ...switchTagBtns, batchPreviewBtn];
+    const bulkBtns = [selectAllToggleBtn, exportSelectedBtn, deleteSelectedBtn, ...switchTagBtns, batchPreviewBtn];
     for (const btn of bulkBtns) btn.classList.add('nd-artist-bulk__btn');
     const bulkSep = el('span', 'nd-artist-filter-row__sep');
     bulkSep.setAttribute('aria-hidden', 'true');
-    const bulkParts = [bulkSep, ...bulkBtns, bulkCount];
+    const staticBulkParts = [bulkSep, selectAllToggleBtn, exportSelectedBtn, deleteSelectedBtn, batchPreviewBtn, bulkCount];
     /** @param {boolean} on */
     const showBulk = (on) => {
-        for (const node of bulkParts) node.hidden = !on;
+        for (const node of staticBulkParts) node.hidden = !on;
+        if (!on) {
+            for (const btn of switchTagBtns) btn.hidden = true;
+        } else {
+            syncSwitchTagVisibility(view?.getSelectedIds() || []);
+        }
     };
     showBulk(false);
+
+    /**
+     * 按所选画师串的版本动态显隐「改为 v4.5 / 改为 v5」：
+     * 全选 v5 → 只显示「改为 v4.5」；全选 v4.5 → 只显示「改为 v5」；混选 → 两者都显示；未选 → 都隐藏。
+     * @param {string[]} ids
+     */
+    function syncSwitchTagVisibility(ids) {
+        const inSelection = Boolean(view?.isSelectionMode());
+        if (!inSelection || !ids.length) {
+            for (const { btn } of switchTagEntries) {
+                btn.hidden = true;
+                btn.disabled = true;
+            }
+            return;
+        }
+        const selectedTags = new Set(ids.map((id) => modelTagById.get(String(id)) || 'v5'));
+        for (const { tag, btn } of switchTagEntries) {
+            // 只要选中项里存在非目标版本的条目，就显示该切换按钮
+            const canSwitch = [...selectedTags].some((src) => src !== tag);
+            btn.hidden = !canSwitch;
+            btn.disabled = !canSwitch;
+        }
+    }
 
     /** @type {AbortController|null} 批量生成预览图的队列；非空即在跑 */
     let batchAbort = null;
@@ -203,6 +246,11 @@ export function mountArtistPanel(root, deps) {
         showBulk(next);
         setText(selectModeBtn, next ? '完成' : '选择');
         selectModeBtn.setAttribute('aria-pressed', next ? 'true' : 'false');
+        syncSelectAllButton();
+    }
+
+    function syncSelectAllButton() {
+        setText(selectAllToggleBtn, isAllVisibleSelected() ? '取消全选' : '全选');
     }
 
     const selectModeBtn = createButton({
@@ -225,12 +273,14 @@ export function mountArtistPanel(root, deps) {
         const idle = count === 0;
         if (!exportAbort) exportSelectedBtn.disabled = idle;
         deleteSelectedBtn.disabled = idle;
-        for (const btn of switchTagBtns) btn.disabled = idle;
+        syncSwitchTagVisibility(ids);
         if (!batchAbort) batchPreviewBtn.disabled = idle;
+        syncSelectAllButton();
     }
 
     /**
-     * 按当前勾选的画师串精准导出（不读取未选中的原图），文件名标明 V4 / V5 / V4V5。
+     * 按当前勾选的画师串精准导出（不读取未选中的原图）：
+     * 单版本命名为 V4.5 / V5；混合导出不写版本号并给一句提示。
      */
     async function exportSelectedArtists() {
         if (exportAbort) return;
@@ -243,9 +293,10 @@ export function mountArtistPanel(root, deps) {
             toast(host, 'warning', '没有可导出的画师串');
             return;
         }
-        const hasV4 = selectedRows.some((row) => resolveArtistModelTag(row) === 'v4.5');
+        const hasV45 = selectedRows.some((row) => resolveArtistModelTag(row) === 'v4.5');
         const hasV5 = selectedRows.some((row) => resolveArtistModelTag(row) === 'v5');
-        const versionTag = hasV4 && hasV5 ? 'V4V5' : (hasV4 ? 'V4' : 'V5');
+        const mixed = hasV45 && hasV5;
+        const versionTag = mixed ? '' : (hasV45 ? 'V4.5' : 'V5');
 
         const controller = new AbortController();
         exportAbort = controller;
@@ -271,7 +322,7 @@ export function mountArtistPanel(root, deps) {
             if (warnings.length) {
                 toast(host, 'warning', `有 ${warnings.length} 条没有原图，已按无图导出`);
             }
-            if (hasV4 && hasV5) {
+            if (mixed) {
                 toast(host, 'info', `已混合导出 V4.5 与 V5 共 ${r.value.length} 条画师串（导入时请按需要选择版本）`);
             } else {
                 toast(host, 'success', `已导出 ${r.value.length} 条画师串（${versionTag}）`);
@@ -283,7 +334,7 @@ export function mountArtistPanel(root, deps) {
         } finally {
             exportAbort = null;
             if (!destroyed) {
-                setText(exportSelectedBtn, '导出所选');
+                setText(exportSelectedBtn, '导出');
                 exportSelectedBtn.disabled = selectedCount === 0;
             }
         }
@@ -380,7 +431,7 @@ export function mountArtistPanel(root, deps) {
     const tagFilter = createArtistModelTagFilter({
         onChange: (tag) => {
             modelFilter = tag;
-            void view?.refresh();
+            void view?.refresh().then(() => syncSelectAllButton());
         },
     });
 

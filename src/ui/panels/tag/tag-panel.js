@@ -97,34 +97,32 @@ export function mountTagPanel(root, deps) {
 
     const bulkCount = el('span', 'nd-artist-bulk__count');
     setText(bulkCount, '已选 0');
-    const selectAllBtn = createButton({
+    const selectAllToggleBtn = createButton({
         label: '全选',
         variant: 'ghost',
-        onClick: () => selectVisibleAll(),
-    });
-    const clearSelectBtn = createButton({
-        label: '取消选择',
-        variant: 'ghost',
-        onClick: () => clearSelection(),
+        onClick: () => {
+            if (isAllVisibleSelected()) clearSelection();
+            else selectVisibleAll();
+        },
     });
     const exportSelectedBtn = createButton({
-        label: '导出所选',
+        label: '导出',
         variant: 'ghost',
         onClick: () => exportSelected(),
     });
     exportSelectedBtn.disabled = true;
     const deleteSelectedBtn = createButton({
-        label: '删除所选',
+        label: '删除',
         variant: 'danger',
         onClick: () => void removeSelected(),
     });
     deleteSelectedBtn.disabled = true;
-    for (const btn of [selectAllBtn, clearSelectBtn, exportSelectedBtn, deleteSelectedBtn]) {
+    for (const btn of [selectAllToggleBtn, exportSelectedBtn, deleteSelectedBtn]) {
         btn.classList.add('nd-artist-bulk__btn');
     }
     const bulkBar = el('div', 'nd-bulk-bar');
     bulkBar.hidden = true;
-    bulkBar.append(selectAllBtn, clearSelectBtn, exportSelectedBtn, deleteSelectedBtn, bulkCount);
+    bulkBar.append(selectAllToggleBtn, exportSelectedBtn, deleteSelectedBtn, bulkCount);
 
     function setSelectionModeUi(next) {
         selectionMode = Boolean(next);
@@ -197,6 +195,28 @@ export function mountTagPanel(root, deps) {
         return { libs, entries };
     }
 
+    function isAllVisibleSelected() {
+        const q = store.get().query.trim().toLowerCase();
+        const vis = visible();
+        if (!vis.parents.length) return false;
+        let targetCount = 0;
+        for (const lib of vis.parents) {
+            const libId = String(lib.id);
+            const children = vis.childrenByParentId.get(libId) || [];
+            const nameHit = !q || String(lib.name ?? '').toLowerCase().includes(q);
+            if (nameHit) {
+                targetCount += 1;
+                if (!selectedLibIds.has(libId)) return false;
+            } else {
+                for (const entry of children) {
+                    targetCount += 1;
+                    if (!selectedLibIds.has(libId) && !selectedEntryIds.has(String(entry.id))) return false;
+                }
+            }
+        }
+        return targetCount > 0;
+    }
+
     function syncBulk() {
         const { libs, entries } = resolveSelectionTargets();
         const parts = [];
@@ -206,6 +226,7 @@ export function mountTagPanel(root, deps) {
         const empty = libs.length === 0 && entries.length === 0;
         exportSelectedBtn.disabled = empty;
         deleteSelectedBtn.disabled = empty;
+        setText(selectAllToggleBtn, isAllVisibleSelected() ? '取消全选' : '全选');
     }
 
     function exportSelected() {
