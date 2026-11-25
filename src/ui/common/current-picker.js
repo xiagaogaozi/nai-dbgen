@@ -72,6 +72,7 @@ export function mountCurrentPicker(root, deps) {
     const getActiveId = typeof deps?.getActiveId === 'function' ? deps.getActiveId : () => null;
     const setActiveId = typeof deps?.setActiveId === 'function' ? deps.setActiveId : () => {};
     const getLabel = deps?.getLabel;
+    const getEmptyLabel = typeof deps?.getEmptyLabel === 'function' ? deps.getEmptyLabel : null;
     const showCover = deps?.cover === true;
     const resolveCover = typeof deps?.resolveCover === 'function' ? deps.resolveCover : null;
     const modelTagFilter = deps?.modelTagFilter === true;
@@ -220,7 +221,9 @@ export function mountCurrentPicker(root, deps) {
 
     function syncControl() {
         const current = activeItem();
-        const label = labelOf(current, getLabel);
+        const label = current
+            ? labelOf(current, getLabel)
+            : (getEmptyLabel ? String(getEmptyLabel() || '') : '');
         if (cover) {
             paintCover(cover, current, label);
         }

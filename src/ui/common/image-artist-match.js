@@ -34,10 +34,15 @@ export function matchImageArtist(caption, artists) {
         if (!artist?.id || !String(artist.positivePrompt ?? '').trim()) continue;
         const pos = removeUniquePart(positive, artist.positivePrompt, true);
         const neg = removeUniquePart(negative, artist.negativePrompt, false);
-        if (pos.matched && neg.matched) matches.push({ artist, pos: pos.text, neg: neg.text });
+        if (pos.matched && neg.matched) {
+            const exact = !pos.text && !neg.text;
+            matches.push({ artist, pos: pos.text, neg: neg.text, exact });
+        }
     }
-    if (matches.length !== 1) return { artist: null, caption };
-    const { artist, pos, neg } = matches[0];
+    const exactMatches = matches.filter((m) => m.exact);
+    const chosen = exactMatches.length === 1 ? exactMatches : matches;
+    if (chosen.length !== 1) return { artist: null, caption };
+    const { artist, pos, neg } = chosen[0];
     return {
         artist,
         caption: {

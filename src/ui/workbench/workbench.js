@@ -14,6 +14,7 @@ import {
     createField,
     createSelect,
     createMiniAction,
+    createSegmentedTabs,
     createToggle,
     createCheckbox,
     createFieldGroup,
@@ -26,6 +27,8 @@ import { mountCurrentPicker } from '../common/current-picker.js';
 import { openModal } from '../common/modal.js';
 import { buildExportFilename, downloadJson } from '../common/import-export.js';
 import { confirmDanger, openImportExportModal } from '../panels/_lib/panel-kit.js';
+import { readImageCaption } from '../common/png-caption.js';
+import { matchImageArtist } from '../common/image-artist-match.js';
 import { validateMarketCatalog } from '../../adapters/storage/market-catalog.store.js';
 import {
     parsePromptText,
@@ -150,7 +153,7 @@ function redrawNumberField(labelText, value, min, max) {
 
 /**
  * @param {object} host
- * @returns {Promise<string|null>}
+ * @returns {Promise<{ dataUrl: string, blob: File }|null>}
  */
 async function readRedrawImage(host) {
     const file = await pickRedrawImage();
@@ -169,7 +172,7 @@ async function readRedrawImage(host) {
             toast(host, 'warning', '这张图读不出来');
             return null;
         }
-        return dataUrl;
+        return { dataUrl, blob: file };
     } catch {
         toast(host, 'error', '读取图片失败');
         return null;
@@ -297,6 +300,7 @@ export function mountWorkbench(root, deps) {
     // undefined follows global until the workbench chooses; null explicitly disables artist tags.
     let artistOverrideId = typeof draft?.artistOverrideId === 'string'
         ? draft.artistOverrideId : draft?.artistOverrideId === null ? null : undefined;
+    let artistNewDraftMode = draft?.artistNewDraftMode === true && artistOverrideId === null;
     const manualTags = new Map(Array.isArray(draft?.manualTags)
         ? draft.manualTags.filter((item) => item?.id && item?.target && item?.value && item?.fragment)
             .map((item) => [String(item.id), item]) : []);
@@ -312,8 +316,6 @@ export function mountWorkbench(root, deps) {
     /** @type {{ el: HTMLElement, input: HTMLTextAreaElement, getValue: () => string, setValue: (value: unknown) => void }|null} */
     let artistNegativeField = null;
     let unlinkArtistResize = () => {};
-    /** @type {HTMLButtonElement|null} */
-    let saveCurrentArtistBtn = null;
     /** @type {HTMLButtonElement|null} */
     let replacePreviewBtn = null;
     let replacingPreview = false;
@@ -1369,6 +1371,7 @@ export function mountWorkbench(root, deps) {
         const normalizedId = id == null || String(id).trim() === '' ? null : String(id);
         if (!initialize) {
             artistOverrideId = normalizedId;
+            artistNewDraftMode = false;
             artistPositiveField?.setValue('');
             artistNegativeField?.setValue('');
             for (const [id, record] of manualTags) {
@@ -1379,7 +1382,6 @@ export function mountWorkbench(root, deps) {
         const request = ++artistSelectionRequest;
         const positiveRevision = artistPositiveEditRevision;
         const negativeRevision = artistNegativeEditRevision;
-        if (saveCurrentArtistBtn) saveCurrentArtistBtn.disabled = normalizedId == null;
         syncReplacePreviewBtn();
         if (!initialize) persistWorkbenchDraft();
         if (normalizedId == null || !artistRepo || typeof artistRepo.get !== 'function') return null;
@@ -1528,6 +1530,12 @@ export function mountWorkbench(root, deps) {
             persistWorkbenchDraft();
         },
     });
+    const parseSourceBtn = createButton({
+        label: '解析原图',
+        variant: 'ghost',
+        onClick: () => { void onParseSourceImage(); },
+    });
+    parseSourceBtn.title = '读取这张图的 NovelAI 提示词：匹配画师串则自动选中，陌生原图写入新建画师串，角色提示词自动导入角色区。';
     const reverseBtn = createButton({
         label: '反推重绘',
         variant: 'ghost',
@@ -1885,6 +1893,8 @@ export function mountWorkbench(root, deps) {
 
     /** @type {string} */
     let sourceDataUrl = '';
+    /** @type {Blob|null} */
+    let sourceBlob = null;
 
     const sourcePick = /** @type {HTMLButtonElement} */ (el('button', 'nd-wb-source__pick'));
     sourcePick.type = 'button';
@@ -1897,10 +1907,11 @@ export function mountWorkbench(root, deps) {
     sourcePick.addEventListener('click', () => { void pickSourceImage(); });
 
     async function pickSourceImage() {
-        const dataUrl = await readRedrawImage(host);
-        if (!dataUrl) return;
-        sourceDataUrl = dataUrl;
-        sourceImg.src = dataUrl;
+        const pickedImage = await readRedrawImage(host);
+        if (!pickedImage) return;
+        sourceDataUrl = pickedImage.dataUrl;
+        sourceBlob = pickedImage.blob;
+        sourceImg.src = pickedImage.dataUrl;
         sourceImg.hidden = false;
         sourceEmpty.hidden = true;
     }
@@ -1909,6 +1920,177 @@ export function mountWorkbench(root, deps) {
         if (sourceDataUrl) return sourceDataUrl;
         toast(host, 'warning', '请先上传图片');
         return '';
+    }
+
+    async function hasUnsavedArtistDraft(artists) {
+        const pos = String(artistPositiveField?.getValue() ?? '').trim();
+        const neg = String(artistNegativeField?.getValue() ?? '').trim();
+        if (!pos && !neg) return false;
+        const artistId = selectedArtistId();
+        if (artistId != null) {
+            let existing = Array.isArray(artists)
+                ? artists.find((item) => item && String(item.id) === artistId) ?? null
+                : null;
+            if (!existing && typeof artistRepo?.get === 'function') {
+                try {
+                    const got = await artistRepo.get(artistId);
+                    if (got?.ok) existing = got.value;
+                } catch { /* ignore */ }
+            }
+            if (!existing) return true;
+            return String(existing.positivePrompt ?? '').trim() !== pos
+                || String(existing.negativePrompt ?? '').trim() !== neg;
+        }
+        const matchedExisting = Array.isArray(artists) && artists.some((item) => item
+            && String(item.positivePrompt ?? '').trim() === pos
+            && String(item.negativePrompt ?? '').trim() === neg);
+        return !matchedExisting;
+    }
+
+    /**
+     * @returns {Promise<'save'|'overwrite'|'cancel'>}
+     */
+    function confirmOverwriteArtistDraft() {
+        return new Promise((resolve) => {
+            const box = el('div', 'nd-form');
+            const tip = el('p', 'nd-muted');
+            setText(tip, '当前画师串输入框有未保存的修改，是否先保存再覆盖？');
+            const actions = el('div', 'nd-form__actions');
+            let settled = false;
+            /** @type {{ destroy: () => void }|null} */
+            let modal = null;
+            const finish = (choice) => {
+                if (settled) return;
+                settled = true;
+                try { modal?.destroy(); } catch { /* ignore */ }
+                resolve(choice);
+            };
+            const saveBtn = createButton({
+                label: '保存并覆盖',
+                variant: 'primary',
+                onClick: () => finish('save'),
+            });
+            const overwriteBtn = createButton({
+                label: '直接覆盖',
+                variant: 'danger',
+                onClick: () => finish('overwrite'),
+            });
+            const cancelBtn = createButton({
+                label: '取消',
+                variant: 'ghost',
+                onClick: () => finish('cancel'),
+            });
+            actions.append(cancelBtn, overwriteBtn, saveBtn);
+            box.append(tip, actions);
+            void openModal({ host }, {
+                title: '画师串尚未保存',
+                element: box,
+            }).then((handle) => {
+                modal = handle;
+                box.closest('dialog')?.addEventListener('close', () => finish('cancel'), { once: true });
+            }).catch(() => finish('cancel'));
+        });
+    }
+
+    /**
+     * 统一解析原图并写入工作台：
+     * - 完全匹配画师串库 → 选中该画师串 + 剥离后的场景与角色写入当前提示词
+     * - 陌生原图 → 主正/负面全部写入画师串输入框，不覆盖场景提示词，原图角色写入角色区，当前画师串显示「新建画师串」
+     * @param {Blob} blob
+     */
+    async function importImageMetadataToWorkbench(blob) {
+        const caption = await readImageCaption(blob);
+        if (destroyed) return;
+        const artists = await listArtists();
+        if (destroyed) return;
+        const matched = matchImageArtist(caption, artists);
+
+        const currentArtistId = selectedArtistId();
+        const sameUnchangedArtist = matched.artist != null
+            && currentArtistId != null
+            && String(matched.artist.id) === currentArtistId
+            && !(await hasUnsavedArtistDraft(artists));
+
+        if (!sameUnchangedArtist && await hasUnsavedArtistDraft(artists)) {
+            const choice = await confirmOverwriteArtistDraft();
+            if (destroyed || choice === 'cancel') return;
+            if (choice === 'save') {
+                const saved = await openArtistSaveModal(currentArtistId ? 'update' : 'create');
+                if (destroyed || !saved) return;
+            }
+        }
+
+        if (matched.artist) {
+            artistNewDraftMode = false;
+            await requestWorkbenchArtistSelection(matched.artist.id);
+            if (destroyed) return;
+            captionEditor.setCaption(matched.caption);
+            manualTags.clear();
+            renderMarket();
+            persistWorkbenchDraft();
+            await artistPicker?.refresh();
+            toast(host, 'success', `已解析原图并匹配画师串：${matched.artist.name}`);
+            return;
+        }
+
+        const posBase = String(caption?.v4_prompt?.caption?.base_caption ?? '');
+        const negBase = String(caption?.v4_negative_prompt?.caption?.base_caption ?? '');
+        const posChars = Array.isArray(caption?.v4_prompt?.caption?.char_captions)
+            ? caption.v4_prompt.caption.char_captions : [];
+        const negChars = Array.isArray(caption?.v4_negative_prompt?.caption?.char_captions)
+            ? caption.v4_negative_prompt.caption.char_captions : [];
+        const charCount = Math.max(posChars.length, negChars.length);
+
+        artistOverrideId = null;
+        artistNewDraftMode = true;
+        artistSelectionRequest += 1;
+        artistPositiveField?.setValue(posBase);
+        artistNegativeField?.setValue(negBase);
+        syncReplacePreviewBtn();
+
+        if (charCount > 0) {
+            const currentCaption = captionEditor.getCaption();
+            captionEditor.setCaption({
+                v4_prompt: {
+                    caption: {
+                        base_caption: String(currentCaption?.v4_prompt?.caption?.base_caption ?? ''),
+                        char_captions: posChars,
+                    },
+                },
+                v4_negative_prompt: {
+                    caption: {
+                        base_caption: String(currentCaption?.v4_negative_prompt?.caption?.base_caption ?? ''),
+                        char_captions: negChars,
+                    },
+                },
+            });
+        }
+        manualTags.clear();
+        renderMarket();
+        persistWorkbenchDraft();
+        await artistPicker?.refresh();
+        toast(
+            host,
+            'success',
+            charCount > 0
+                ? `已解析原图：已写入新建画师串并导入 ${charCount} 个角色`
+                : '已解析原图并写入新建画师串',
+        );
+    }
+
+    async function onParseSourceImage() {
+        if (!sourceBlob) {
+            toast(host, 'warning', '请先上传图片');
+            return;
+        }
+        parseSourceBtn.disabled = true;
+        try {
+            await importImageMetadataToWorkbench(sourceBlob);
+        } catch (error) {
+            toast(host, 'error', error instanceof Error ? error.message : '解析原图提示词失败');
+        } finally {
+            if (!destroyed) parseSourceBtn.disabled = false;
+        }
     }
 
     async function onReverseRedraw() {
@@ -2094,19 +2276,15 @@ export function mountWorkbench(root, deps) {
         } catch (cause) { toast(host, 'error', cause?.message || '打开角色保存窗口失败'); }
     }
 
-    async function openArtistSaveModal(mode) {
+    async function openArtistSaveModal(initialMode) {
         const saveService = deps?.artistDraftService;
         if (!saveService || typeof saveService.save !== 'function') {
             toast(host, 'error', '工作台画师串保存服务不可用');
-            return;
+            return null;
         }
         const artistId = selectedArtistId();
         const positiveDraft = artistPositiveField?.getValue() ?? '';
         const negativeDraft = artistNegativeField?.getValue() ?? '';
-        if (mode === 'update' && artistId == null) {
-            toast(host, 'warning', '请先选择要保存到的画师串');
-            return;
-        }
         let existing = null;
         if (artistId != null && typeof artistRepo?.get === 'function') {
             try {
@@ -2116,6 +2294,10 @@ export function mountWorkbench(root, deps) {
                 /* 提交时由保存服务返回可见错误 */
             }
         }
+        const canUpdate = artistId != null;
+        let currentMode = initialMode === 'update' && canUpdate
+            ? 'update'
+            : (initialMode === 'create' ? 'create' : (canUpdate ? 'update' : 'create'));
 
         const form = el('div', 'nd-form');
         const makeField = (labelText, value, multiline = false) => {
@@ -2130,13 +2312,16 @@ export function mountWorkbench(root, deps) {
             field.append(label, input);
             return { el: field, input };
         };
-        const nameField = makeField('画师串名称', existing?.name ?? (mode === 'create' ? '新建画师串' : ''));
+        const nameField = makeField(
+            '画师串名称',
+            currentMode === 'update' ? (existing?.name ?? '') : (existing?.name ?? '新建画师串'),
+        );
         const positiveField = makeField('画师串 · 正面', positiveDraft, true);
         const negativeField = makeField('画师串 · 负面', negativeDraft, true);
         const coverAvailable = typeof Blob !== 'undefined' && currentPreviewBlob instanceof Blob;
         const modelTagChecks = createArtistModelTagChecks({
             modelTag: artistModelTagForModel(paramsForm.getValue().model)
-                ?? (mode === 'update' && existing ? resolveArtistModelTag(existing) : 'v5'),
+                ?? (currentMode === 'update' && existing ? resolveArtistModelTag(existing) : 'v5'),
         });
         const coverToggle = createCheckbox({
             label: '将当前预览图作为画师串封面',
@@ -2145,7 +2330,42 @@ export function mountWorkbench(root, deps) {
         const coverInput = coverToggle.el.querySelector('input');
         if (coverInput) coverInput.disabled = !coverAvailable;
         const error = createInlineError();
-        form.append(nameField.el, modelTagChecks.el, positiveField.el, negativeField.el, coverToggle.el, error.el);
+
+        let confirm = null;
+        const modeTabs = createSegmentedTabs({
+            items: [
+                { id: 'create', label: '新建' },
+                { id: 'update', label: '覆盖' },
+            ],
+            value: currentMode,
+            ariaLabel: '保存画师串方式',
+            onChange: (nextMode) => {
+                if (nextMode === 'update' && !canUpdate) {
+                    modeTabs.setValue('create');
+                    error.setMessage('当前未选择已有画师串，请使用新建');
+                    return;
+                }
+                error.clear();
+                currentMode = nextMode;
+                if (confirm) setText(confirm, currentMode === 'update' ? '确认覆盖' : '确认新建');
+                if (currentMode === 'update' && existing?.name) {
+                    if (!nameField.input.value.trim() || nameField.input.value.trim() === '新建画师串') {
+                        nameField.input.value = existing.name;
+                    }
+                } else if (currentMode === 'create' && !nameField.input.value.trim()) {
+                    nameField.input.value = '新建画师串';
+                }
+            },
+        });
+        if (!canUpdate) {
+            const updateTab = modeTabs.el.querySelector('[data-tab="update"]');
+            if (updateTab) {
+                updateTab.disabled = true;
+                updateTab.title = '当前未选择已有画师串，请使用新建';
+            }
+        }
+
+        form.append(modeTabs.el, nameField.el, modelTagChecks.el, positiveField.el, negativeField.el, coverToggle.el, error.el);
 
         let modal = null;
         let settled = false;
@@ -2154,6 +2374,7 @@ export function mountWorkbench(root, deps) {
             if (settled) return;
             settled = true;
             try { modal?.destroy(); } catch { /* ignore */ }
+            modeTabs.destroy();
             error.destroy();
             coverToggle.destroy();
             resolveModal(value);
@@ -2161,8 +2382,8 @@ export function mountWorkbench(root, deps) {
         let resolveModal;
         const resultPromise = new Promise((resolve) => { resolveModal = resolve; });
         const cancel = createButton({ label: '取消', variant: 'ghost', onClick: () => finish(null) });
-        const confirm = createButton({
-            label: mode === 'update' ? '确认保存' : '确认新建',
+        confirm = createButton({
+            label: currentMode === 'update' ? '确认覆盖' : '确认新建',
             variant: 'primary',
             onClick: async () => {
                 if (saving || settled) return;
@@ -2171,8 +2392,8 @@ export function mountWorkbench(root, deps) {
                 confirm.disabled = true;
                 try {
                     const result = await saveService.save({
-                        mode,
-                        ...(mode === 'update' ? { artistId } : {}),
+                        mode: currentMode,
+                        ...(currentMode === 'update' ? { artistId } : {}),
                         name: nameField.input.value,
                         positivePrompt: positiveField.input.value,
                         negativePrompt: negativeField.input.value,
@@ -2184,13 +2405,13 @@ export function mountWorkbench(root, deps) {
                         return;
                     }
                     artistOverrideId = String(result.value.id);
+                    artistNewDraftMode = false;
                     artistSelectionRequest += 1;
                     artistPositiveField?.setValue(result.value.positivePrompt ?? positiveField.input.value);
                     artistNegativeField?.setValue(result.value.negativePrompt ?? negativeField.input.value);
-                    if (saveCurrentArtistBtn) saveCurrentArtistBtn.disabled = false;
                     persistWorkbenchDraft();
                     await artistPicker?.refresh();
-                    toast(host, 'success', mode === 'update' ? '已保存到当前画师串' : '已新建画师串');
+                    toast(host, 'success', currentMode === 'update' ? '已覆盖当前画师串' : '已新建画师串');
                     finish(result.value);
                 } catch (saveError) {
                     error.setMessage(workbenchErrorMessage(saveError));
@@ -2206,13 +2427,14 @@ export function mountWorkbench(root, deps) {
 
         try {
             modal = await openModal({ host }, {
-                title: mode === 'update' ? '保存到当前画师串' : '新建画师串',
+                title: '保存画师串',
                 element: form,
                 wide: true,
                 allowVerticalScrolling: true,
             });
             form.closest('dialog')?.addEventListener('close', () => finish(null), { once: true });
         } catch (errorOpen) {
+            modeTabs.destroy();
             error.destroy();
             coverToggle.destroy();
             toast(host, 'error', workbenchErrorMessage(errorOpen));
@@ -2254,8 +2476,8 @@ export function mountWorkbench(root, deps) {
     genActions.append(genBtn, replacePreviewBtn, downloadActions, genCancelBtn, clearBtn);
     const sourceBar = el('div', 'nd-wb-source');
     const sourceActions = el('div', 'nd-wb-source__actions');
-    sourceActions.append(reverseBtn, img2imgBtn, strengthField.el, noiseField.el);
-    sourceBar.append(sourcePick, sourceActions);
+    sourceActions.append(parseSourceBtn, reverseBtn, img2imgBtn, strengthField.el, noiseField.el);
+    sourceBar.append(sourceActions, sourcePick);
 
     /** @type {ReturnType<typeof mountCurrentPicker>|null} */
     let artistPicker = null;
@@ -2283,17 +2505,10 @@ export function mountWorkbench(root, deps) {
         unlinkArtistResize = linkTextareaHeights(artistPositiveField.input, artistNegativeField.input);
 
         const artistActions = el('div', 'nd-wb-artist-actions nd-wb-actions');
-        saveCurrentArtistBtn = createButton({
-            label: '保存到当前画师串',
-            variant: 'ghost',
-            onClick: () => { void openArtistSaveModal('update'); },
-        });
-        saveCurrentArtistBtn.disabled = selectedArtistId() == null;
-        artistActions.appendChild(saveCurrentArtistBtn);
         artistActions.appendChild(createButton({
-            label: '新建画师串',
+            label: '保存画师串',
             variant: 'ghost',
-            onClick: () => { void openArtistSaveModal('create'); },
+            onClick: () => { void openArtistSaveModal(); },
         }));
         artistSlot.append(artistField, promptFields, artistActions);
 
@@ -2301,6 +2516,7 @@ export function mountWorkbench(root, deps) {
             list: listArtists,
             getActiveId: () => artistOverrideId === undefined
                 ? loadSettings().activeArtistId ?? null : artistOverrideId,
+            getEmptyLabel: () => (artistNewDraftMode && selectedArtistId() == null ? '新建画师串' : ''),
             setActiveId: (id) => {
                 void requestWorkbenchArtistSelection(id);
                 void artistPicker?.refresh();
@@ -2363,7 +2579,7 @@ export function mountWorkbench(root, deps) {
     const middleColumn = el('div', 'nd-wb-column nd-wb-column--middle');
     const rightColumn = el('div', 'nd-wb-column nd-wb-column--right');
     leftColumn.append(paramsDetails.el, writeSection.el);
-    middleColumn.append(artistSlot, sourceBar, captionSection.el, market);
+    middleColumn.append(sourceBar, artistSlot, captionSection.el, market);
     rightColumn.append(genSection.el);
     shell.append(leftRail, leftColumn, middleColumn, rightColumn);
     root.appendChild(shell);
@@ -2386,6 +2602,7 @@ export function mountWorkbench(root, deps) {
             imageRefs: savedImageRefs,
             previewImageRefs,
             artistOverrideId,
+            artistNewDraftMode,
             artistPositivePrompt: artistPositiveField?.getValue() ?? '',
             artistNegativePrompt: artistNegativeField?.getValue() ?? '',
             marketSignature,
@@ -2496,6 +2713,10 @@ export function mountWorkbench(root, deps) {
     return {
         async importFromPanel(payload) {
             if (destroyed) throw new Error('工作台已关闭');
+            if (payload?.imageBlob) {
+                await importImageMetadataToWorkbench(payload.imageBlob);
+                return;
+            }
             if (payload?.artistId != null) {
                 const artist = await requestWorkbenchArtistSelection(payload.artistId);
                 if (!artist) throw new Error('画师串不存在，无法导入');
