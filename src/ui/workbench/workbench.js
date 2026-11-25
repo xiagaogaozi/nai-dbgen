@@ -1896,6 +1896,7 @@ export function mountWorkbench(root, deps) {
     /** @type {Blob|null} */
     let sourceBlob = null;
 
+    const sourceBox = el('div', 'nd-wb-source__box');
     const sourcePick = /** @type {HTMLButtonElement} */ (el('button', 'nd-wb-source__pick'));
     sourcePick.type = 'button';
     const sourceImg = document.createElement('img');
@@ -1906,6 +1907,28 @@ export function mountWorkbench(root, deps) {
     sourcePick.append(sourceEmpty, sourceImg);
     sourcePick.addEventListener('click', () => { void pickSourceImage(); });
 
+    const sourceClearBtn = /** @type {HTMLButtonElement} */ (el('button', 'nd-wb-source__clear'));
+    sourceClearBtn.type = 'button';
+    sourceClearBtn.setAttribute('aria-label', '关闭已上传图片');
+    sourceClearBtn.title = '移除图片';
+    setText(sourceClearBtn, '×');
+    sourceClearBtn.hidden = true;
+    sourceClearBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        clearSourceImage();
+    });
+    sourceBox.append(sourcePick, sourceClearBtn);
+
+    function clearSourceImage() {
+        sourceDataUrl = '';
+        sourceBlob = null;
+        sourceImg.src = '';
+        sourceImg.hidden = true;
+        sourceEmpty.hidden = false;
+        sourceClearBtn.hidden = true;
+    }
+
     async function pickSourceImage() {
         const pickedImage = await readRedrawImage(host);
         if (!pickedImage) return;
@@ -1914,6 +1937,7 @@ export function mountWorkbench(root, deps) {
         sourceImg.src = pickedImage.dataUrl;
         sourceImg.hidden = false;
         sourceEmpty.hidden = true;
+        sourceClearBtn.hidden = false;
     }
 
     function requireSourceImage() {
@@ -2477,7 +2501,7 @@ export function mountWorkbench(root, deps) {
     const sourceBar = el('div', 'nd-wb-source');
     const sourceActions = el('div', 'nd-wb-source__actions');
     sourceActions.append(parseSourceBtn, reverseBtn, img2imgBtn, strengthField.el, noiseField.el);
-    sourceBar.append(sourceActions, sourcePick);
+    sourceBar.append(sourceActions, sourceBox);
 
     /** @type {ReturnType<typeof mountCurrentPicker>|null} */
     let artistPicker = null;

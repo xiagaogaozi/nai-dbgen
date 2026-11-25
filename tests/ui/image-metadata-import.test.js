@@ -243,7 +243,11 @@ describe('workbench metadata import, layout, save modal & unsaved protection', (
         assert.equal(middle.childNodes[0], sourceBar, 'sourceBar is above artistSlot');
         assert.equal(middle.childNodes[1], artistSlot);
         assert.equal(sourceBar.childNodes[0].className, 'nd-wb-source__actions');
-        assert.equal(sourceBar.childNodes[1].className, 'nd-wb-source__pick', 'upload button is right above current artist');
+        assert.equal(sourceBar.childNodes[1].className, 'nd-wb-source__box', 'upload box is right above current artist');
+        assert.ok(sourceBar.querySelector('.nd-wb-source__pick'));
+        const clearBtn = sourceBar.querySelector('.nd-wb-source__clear');
+        assert.ok(clearBtn);
+        assert.equal(clearBtn.hidden, true);
 
         const parseBtn = findButton(sourceBar, '解析原图');
         const reverseBtn = findButton(sourceBar, '反推重绘');
